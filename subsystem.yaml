@@ -2,7 +2,7 @@
 # schema: standards/schemas/subsystem.schema.json
 
 name: csmju-cloudflow          # ต้องตรงกับทะเบียนใน Core Hub และกับ data.service ของ /api/health
-standards_version: "1.0.0"
+standards_version: "1.0.1"
 conformance_level: L3                 # L1 · L2 · L3 (ระบบที่มี UI ต้องถึง L3)
 
 base_url: http://localhost:3002       # URL ของระบบย่อยตอนรันเพื่อทดสอบ
