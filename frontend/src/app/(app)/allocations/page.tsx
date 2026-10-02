@@ -5,11 +5,11 @@ import Link from 'next/link';
 import { ApiError, api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import type { Allocation, Paged, ResourceRequest, ResourceUsage } from '@/lib/types';
-import { Alert, Card, Empty, Icon, StatusChip, fmtDateTime } from '@/components/ui';
+import { Alert, Card, Empty, Icon, fmtDateTime, personLabel } from '@/components/ui';
 
 export default function AllocationsPage() {
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'ADMIN';
+  const { can } = useAuth();
+  const isAdmin = can('allocation:create');
 
   const [rows, setRows] = useState<Allocation[] | null>(null);
   const [approved, setApproved] = useState<ResourceRequest[]>([]);
@@ -39,10 +39,10 @@ export default function AllocationsPage() {
       try {
         const [reqs, usage] = await Promise.all([
           api<Paged<ResourceRequest>>('/requests?status=APPROVED&limit=100'),
-          api<ResourceUsage[]>('/resources/usage'),
+          api<Paged<ResourceUsage>>('/resource-usages?limit=100'),
         ]);
         setApproved(reqs.data);
-        setNodes(usage);
+        setNodes(usage.data);
       } catch {
         /* ฟอร์มจัดสรรเป็นส่วนเสริม */
       }
@@ -67,14 +67,14 @@ export default function AllocationsPage() {
       await api('/allocations', {
         method: 'POST',
         body: {
-          requestId: Number(requestId),
-          resourceId: Number(resourceId),
+          requestId,
+          resourceId,
           ipAddress: ip.trim(),
           port: Number(port),
           accessNote: note.trim() || undefined,
         },
       });
-      setOk(`จัดสรรคำขอ #${requestId} เรียบร้อย`);
+      setOk(`จัดสรรคำขอ ${requestId.slice(0, 8)} เรียบร้อย`);
       setRequestId('');
       setNote('');
       await load();
@@ -85,14 +85,14 @@ export default function AllocationsPage() {
     }
   }
 
-  async function release(id: number) {
-    if (!window.confirm(`คืนเครื่องของการจัดสรร #${id}?`)) return;
+  async function release(id: string) {
+    if (!window.confirm(`คืนเครื่องของการจัดสรร ${id.slice(0, 8)}?`)) return;
     setError('');
     setOk('');
     setBusy(true);
     try {
-      await api(`/allocations/${id}/release`, { method: 'PATCH', body: {} });
-      setOk(`คืนเครื่องรายการ #${id} แล้ว`);
+      await api(`/allocations/${id}/release`, { method: 'POST', body: {} });
+      setOk(`คืนเครื่องรายการ ${id.slice(0, 8)} แล้ว`);
       await load();
     } catch (e) {
       setError(e instanceof ApiError ? e.readable : 'คืนเครื่องไม่สำเร็จ');
@@ -142,7 +142,7 @@ export default function AllocationsPage() {
                   {rows.map((a) => (
                     <tr key={a.id}>
                       <td className="mono cell-strong">
-                        {a.resource?.serverName ?? `#${a.resourceId}`}
+                        {a.resource?.serverName ?? a.resourceId.slice(0, 8)}
                         {a.resource?.hasGpu && <span className="muted"> · GPU</span>}
                       </td>
                       <td className="mono" style={{ fontSize: 12 }}>
@@ -150,9 +150,9 @@ export default function AllocationsPage() {
                       </td>
                       <td>
                         <Link href={`/requests/${a.requestId}`} className="cell-link">
-                          {a.request?.subjectCode ?? `#${a.requestId}`}
+                          {a.request?.courseCode ?? a.requestId.slice(0, 8)}
                         </Link>
-                        <div className="cell-sub">{a.request?.student?.fullName ?? ''}</div>
+                        <div className="cell-sub">{a.request ? personLabel(a.request.personCode, a.request.coreUserId) : ''}</div>
                       </td>
                       <td className="mono" style={{ fontSize: 12 }}>
                         {fmtDateTime(a.assignedAt)}
@@ -191,7 +191,7 @@ export default function AllocationsPage() {
                 <option value="">เลือกคำขอที่อนุมัติแล้ว</option>
                 {approved.map((r) => (
                   <option key={r.id} value={r.id}>
-                    #{r.id} · {r.subjectCode} · {r.reqCpu}C/{r.reqRamGb}GB{r.reqGpu ? ' · GPU' : ''}
+                    {r.personCode ?? r.id.slice(0, 8)} · {r.courseCode} · {r.reqCpu}C/{r.reqRamGb}GB{r.isGpuRequired ? ' · GPU' : ''}
                   </option>
                 ))}
               </select>
@@ -209,14 +209,14 @@ export default function AllocationsPage() {
                   .map((n) => {
                     const tooSmall =
                       selectedReq &&
-                      (n.free_cpu < selectedReq.reqCpu ||
-                        n.free_ram_gb < selectedReq.reqRamGb ||
-                        n.free_storage_gb < selectedReq.reqStorageGb ||
-                        (selectedReq.reqGpu && !n.has_gpu));
+                      (n.freeCpu < selectedReq.reqCpu ||
+                        n.freeRamGb < selectedReq.reqRamGb ||
+                        n.freeStorageGb < selectedReq.reqStorageGb ||
+                        (selectedReq.isGpuRequired && !n.hasGpu));
                     return (
-                      <option key={n.resource_id} value={n.resource_id}>
-                        {n.server_name} · free {n.free_cpu}C/{n.free_ram_gb}GB
-                        {n.has_gpu ? ' · GPU' : ''}
+                      <option key={n.resourceId} value={n.resourceId}>
+                        {n.serverName} · free {n.freeCpu}C/{n.freeRamGb}GB
+                        {n.hasGpu ? ' · GPU' : ''}
                         {tooSmall ? ' — ไม่พอ' : ''}
                       </option>
                     );

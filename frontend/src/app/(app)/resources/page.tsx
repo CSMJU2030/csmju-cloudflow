@@ -16,8 +16,8 @@ import {
 } from '@/components/ui';
 
 export default function InfrastructurePage() {
-  const { user } = useAuth();
-  const isAdmin = user?.role === 'ADMIN';
+  const { can } = useAuth();
+  const isAdmin = can('allocation:create');
   const [nodes, setNodes] = useState<ResourceUsage[] | null>(null);
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [error, setError] = useState('');
@@ -25,14 +25,14 @@ export default function InfrastructurePage() {
 
   const load = useCallback(async () => {
     try {
-      setNodes(await api<ResourceUsage[]>('/resources/usage'));
+      setNodes((await api<Paged<ResourceUsage>>('/resource-usages?limit=100')).data);
     } catch (e) {
       setError(e instanceof ApiError ? e.readable : 'โหลดข้อมูลเครื่องไม่สำเร็จ');
       setNodes([]);
     }
 
-    // log stream เปิดให้เฉพาะ ADMIN — role อื่นเรียกแล้วจะได้ 403 จึงไม่ต้องยิง
-    if (user?.role === 'ADMIN') {
+    // log stream เปิดให้เฉพาะผู้มี audit-log:read — role อื่นเรียกแล้วจะได้ 403 จึงไม่ต้องยิง
+    if (can('audit-log:read')) {
       try {
         const res = await api<Paged<AuditLog>>('/audit-logs?limit=12');
         setLogs(res.data);
@@ -40,7 +40,7 @@ export default function InfrastructurePage() {
         /* ไม่ใช่ส่วนหลักของหน้า */
       }
     }
-  }, [user]);
+  }, [can]);
 
   useEffect(() => {
     load();
@@ -49,21 +49,21 @@ export default function InfrastructurePage() {
   const totals = useMemo(() => {
     const n = nodes ?? [];
     const sum = (f: (r: ResourceUsage) => number) => n.reduce((s, r) => s + f(r), 0);
-    const gpuNodes = n.filter((r) => r.has_gpu);
+    const gpuNodes = n.filter((r) => r.hasGpu);
     return {
-      cpuUsed: sum((r) => r.used_cpu),
-      cpuTotal: sum((r) => r.total_cpu),
-      ramUsed: sum((r) => r.used_ram_gb),
-      ramTotal: sum((r) => r.total_ram_gb),
-      stUsed: sum((r) => r.used_storage_gb),
-      stTotal: sum((r) => r.total_storage_gb),
-      gpuBusy: gpuNodes.filter((r) => r.active_allocations > 0).length,
+      cpuUsed: sum((r) => r.usedCpu),
+      cpuTotal: sum((r) => r.totalCpu),
+      ramUsed: sum((r) => r.usedRamGb),
+      ramTotal: sum((r) => r.totalRamGb),
+      stUsed: sum((r) => r.usedStorageGb),
+      stTotal: sum((r) => r.totalStorageGb),
+      gpuBusy: gpuNodes.filter((r) => r.activeAllocations > 0).length,
       gpuTotal: gpuNodes.length,
     };
   }, [nodes]);
 
   const shown = useMemo(
-    () => (onlyBusy ? (nodes ?? []).filter((n) => n.active_allocations > 0) : nodes ?? []),
+    () => (onlyBusy ? (nodes ?? []).filter((n) => n.activeAllocations > 0) : nodes ?? []),
     [nodes, onlyBusy],
   );
 
@@ -144,23 +144,23 @@ export default function InfrastructurePage() {
                 </thead>
                 <tbody>
                   {shown.map((n) => {
-                    const u = pct(n.used_cpu, n.total_cpu);
+                    const u = pct(n.usedCpu, n.totalCpu);
                     return (
-                      <tr key={n.resource_id}>
+                      <tr key={n.resourceId}>
                         <td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span style={{ color: 'var(--muted)', display: 'flex' }}>
                               <Icon.node />
                             </span>
-                            <span className="cell-strong mono">{n.server_name}</span>
+                            <span className="cell-strong mono">{n.serverName}</span>
                           </div>
                         </td>
                         <td>
                           <ResourceChip status={n.status} />
                         </td>
                         <td className="mono" style={{ fontSize: 12 }}>
-                          {n.total_cpu}C / {n.total_ram_gb}GB
-                          {n.has_gpu && <span className="muted"> (GPU)</span>}
+                          {n.totalCpu}C / {n.totalRamGb}GB
+                          {n.hasGpu && <span className="muted"> (GPU)</span>}
                         </td>
                         <td>
                           <div className="meter" style={{ marginTop: 0 }}>
@@ -170,11 +170,11 @@ export default function InfrastructurePage() {
                             />
                           </div>
                           <div className="cell-sub">
-                            {n.used_cpu}/{n.total_cpu} cores · free {n.free_cpu}
+                            {n.usedCpu}/{n.totalCpu} cores · free {n.freeCpu}
                           </div>
                         </td>
                         <td className="mono" style={{ textAlign: 'right' }}>
-                          {n.active_allocations}
+                          {n.activeAllocations}
                         </td>
                       </tr>
                     );

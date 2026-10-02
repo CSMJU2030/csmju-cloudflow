@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ApiError, api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
-import type { ResourceUsage, Teacher } from '@/lib/types';
+import type { Advisor, Course, Paged, ResourceUsage } from '@/lib/types';
 import { Alert, Card, DarkMeter, Icon, Slider, Switch } from '@/components/ui';
 
 /**
@@ -25,14 +25,15 @@ const RANGE = {
 
 export default function NewRequestPage() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, can } = useAuth();
+  const canCreate = can('request:create:own');
 
-  const [teachers, setTeachers] = useState<Teacher[]>([]);
-  const [subjects, setSubjects] = useState<string[]>([]);
+  const [advisors, setAdvisors] = useState<Advisor[]>([]);
+  const [courses, setCourses] = useState<Course[]>([]);
   const [usage, setUsage] = useState<ResourceUsage[]>([]);
 
-  const [teacherId, setTeacherId] = useState('');
-  const [subjectCode, setSubjectCode] = useState('');
+  const [teacherPersonCode, setTeacherPersonCode] = useState('');
+  const [courseCode, setCourseCode] = useState('');
   const [reason, setReason] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -47,33 +48,40 @@ export default function NewRequestPage() {
   useEffect(() => {
     (async () => {
       try {
-        const [t, u] = await Promise.all([
-          api<Teacher[]>('/users/teachers'),
-          api<ResourceUsage[]>('/resources/usage'),
-        ]);
-        setTeachers(t);
-        setUsage(u);
+        const u = await api<Paged<ResourceUsage>>('/resource-usages?limit=100');
+        setUsage(u.data);
       } catch (e) {
         setError(e instanceof ApiError ? e.readable : 'โหลดข้อมูลตั้งต้นไม่สำเร็จ');
       }
     })();
 
-    // รหัสวิชาที่เคยยื่นมาก่อน — ใช้เป็นตัวเลือกให้พิมพ์น้อยลง
-    api<{ data: { subjectCode: string }[] }>('/requests?limit=100')
-      .then((r) => setSubjects([...new Set(r.data.map((x) => x.subjectCode))].sort()))
+    // อาจารย์ที่ปรึกษาจาก Core Hub (/people/me) — บัญชีที่ยังไม่ผูกกับบุคคลจะได้รายการว่าง
+    if (!canCreate) return;
+    api<Paged<Advisor>>('/advisors')
+      .then((r) => setAdvisors(r.data))
       .catch(() => {});
-  }, []);
+  }, [canCreate]);
+
+  // รายวิชามาจากข้อมูลกลางของ Core Hub (ผ่าน backend ของระบบนี้) — ค้นตามที่พิมพ์
+  useEffect(() => {
+    if (!canCreate) return;
+    const q = courseCode.trim();
+    const t = setTimeout(() => {
+      api<Paged<Course>>(`/courses?limit=20${q ? `&q=${encodeURIComponent(q)}` : ''}`)
+        .then((r) => setCourses(r.data))
+        .catch(() => setCourses([]));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [courseCode, canCreate]);
 
   /**
    * มีเครื่องไหน "รับไหว" จริงไหม — เช็กกับที่เหลือจริงจาก view resource_usage
    * ไม่ใช่แค่เทียบกับเพดานที่ตั้งไว้เอง
    */
   const fits = useMemo(() => {
-    const candidates = usage.filter(
-      (n) => n.status === 'AVAILABLE' && (!gpu || n.has_gpu),
-    );
+    const candidates = usage.filter((n) => n.status === 'AVAILABLE' && (!gpu || n.hasGpu));
     return candidates.some(
-      (n) => n.free_cpu >= cpu && n.free_ram_gb >= ram && n.free_storage_gb >= storage,
+      (n) => n.freeCpu >= cpu && n.freeRamGb >= ram && n.freeStorageGb >= storage,
     );
   }, [usage, cpu, ram, storage, gpu]);
 
@@ -81,22 +89,21 @@ export default function NewRequestPage() {
 
   async function submit() {
     setError('');
-    if (!teacherId) return setError('เลือกอาจารย์ผู้รับรองก่อน');
-    if (!subjectCode.trim()) return setError('ใส่รหัสวิชา');
+    if (!courseCode.trim()) return setError('เลือกรายวิชาจากข้อมูลกลาง');
     if (reason.trim().length < 10) return setError('อธิบายเหตุผลอย่างน้อย 10 ตัวอักษร');
     if (!startDate || !endDate) return setError('เลือกช่วงวันที่ใช้งาน');
 
     setBusy(true);
     try {
-      const created = await api<{ id: number }>('/requests', {
+      const created = await api<{ id: string }>('/requests', {
         method: 'POST',
         body: {
-          teacherId: Number(teacherId),
-          subjectCode: subjectCode.trim().toUpperCase(),
+          ...(teacherPersonCode.trim() ? { teacherPersonCode: teacherPersonCode.trim() } : {}),
+          courseCode: courseCode.trim().toUpperCase(),
           reqCpu: cpu,
           reqRamGb: ram,
           reqStorageGb: storage,
-          reqGpu: gpu,
+          isGpuRequired: gpu,
           reason: reason.trim(),
           startDate,
           endDate,
@@ -110,13 +117,13 @@ export default function NewRequestPage() {
     }
   }
 
-  if (user && user.role !== 'STUDENT') {
+  if (user && !can('request:create:own')) {
     return (
       <>
         <h1 className="page-title">New Resource Request</h1>
         <p className="page-sub">ยื่นคำขอได้เฉพาะบัญชีนักศึกษา</p>
         <Alert kind="bad">
-          บัญชีนี้เป็น {user.role} — endpoint <code>POST /requests</code> เปิดให้เฉพาะ role STUDENT
+          บัญชีนี้เป็น {user.subsystemRole} — การยื่นคำขอเปิดให้เฉพาะนักศึกษา
         </Alert>
       </>
     );
@@ -138,28 +145,36 @@ export default function NewRequestPage() {
                 <label className="lbl">Course Association</label>
                 <input
                   className="input"
-                  list="subject-list"
-                  placeholder="CS432"
-                  value={subjectCode}
-                  onChange={(e) => setSubjectCode(e.target.value)}
+                  list="course-list"
+                  placeholder="10301111-1"
+                  value={courseCode}
+                  onChange={(e) => setCourseCode(e.target.value)}
                 />
-                <datalist id="subject-list">
-                  {subjects.map((s) => (
-                    <option key={s} value={s} />
+                <datalist id="course-list">
+                  {courses.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.nameTh}
+                    </option>
                   ))}
                 </datalist>
               </div>
 
               <div className="field">
-                <label className="lbl">Faculty Advisor</label>
-                <select className="select" value={teacherId} onChange={(e) => setTeacherId(e.target.value)}>
-                  <option value="">Select Advisor</option>
-                  {teachers.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.fullName}
+                <label className="lbl">Faculty Advisor (รหัสบุคลากร)</label>
+                <input
+                  className="input"
+                  list="advisor-list"
+                  placeholder="ไม่ระบุ = อาจารย์คนใดก็พิจารณาได้"
+                  value={teacherPersonCode}
+                  onChange={(e) => setTeacherPersonCode(e.target.value)}
+                />
+                <datalist id="advisor-list">
+                  {advisors.map((a) => (
+                    <option key={a.personCode} value={a.personCode}>
+                      {a.fullNameTh}
                     </option>
                   ))}
-                </select>
+                </datalist>
               </div>
             </div>
 

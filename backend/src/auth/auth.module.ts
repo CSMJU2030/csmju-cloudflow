@@ -1,26 +1,14 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { JwtModule } from '@nestjs/jwt';
-import { PassportModule } from '@nestjs/passport';
 
-import { AuthController } from './auth.controller';
-import { AuthService } from './auth.service';
-import { JwtStrategy } from './jwt.strategy';
+import { CoreHubTokenVerifier } from './core-hub-token.verifier';
+import { IdentityService } from './identity.service';
+import { JwksService } from './jwks.service';
+import { MeController } from './me.controller';
+import { SsoController } from './sso.controller';
 
 @Module({
-  imports: [
-    PassportModule.register({ defaultStrategy: 'jwt' }),
-    JwtModule.registerAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        secret: config.get<string>('JWT_SECRET') ?? 'dev-only-change-me-before-production',
-        signOptions: { expiresIn: config.get<string>('JWT_EXPIRES_IN') ?? '8h' },
-      }),
-    }),
-  ],
-  controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
-  exports: [AuthService],
+  controllers: [SsoController, MeController],
+  providers: [JwksService, CoreHubTokenVerifier, IdentityService],
+  exports: [JwksService, CoreHubTokenVerifier, IdentityService],
 })
 export class AuthModule {}

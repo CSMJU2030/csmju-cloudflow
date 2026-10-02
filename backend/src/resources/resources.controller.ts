@@ -1,54 +1,56 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { UserRole } from '@prisma/client';
 
-import { ResourcesService } from './resources.service';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
+import type { CoreHubIdentity } from '../auth/core-hub-identity';
+import { Permission } from '../auth/permissions';
+import { PaginationDto } from '../common/dto/pagination.dto';
+import { UuidPipe } from '../common/pipes/uuid.pipe';
 import { CreateResourceDto, ListResourcesDto, UpdateResourceDto } from './dto/resource.dto';
-import { Roles } from '../common/decorators/roles.decorator';
-import { AuthUser, CurrentUser } from '../common/decorators/current-user.decorator';
+import { ResourcesService } from './resources.service';
 
 @ApiTags('resources')
 @ApiBearerAuth()
-@Controller('resources')
+@Controller('v1')
 export class ResourcesController {
   constructor(private readonly resources: ResourcesService) {}
 
-  @Get('usage')
+  @Get('resource-usages')
+  @RequirePermissions(Permission.RESOURCE_READ)
   @ApiOperation({ summary: 'ทรัพยากรคงเหลือของทุกเครื่อง (คำนวณสดจาก view)' })
-  usage() {
-    return this.resources.usage();
+  usage(@Query() dto: PaginationDto) {
+    return this.resources.usage(dto);
   }
 
-  @Get()
+  @Get('resources')
+  @RequirePermissions(Permission.RESOURCE_READ)
   @ApiOperation({ summary: 'รายการเครื่องทั้งหมด' })
   list(@Query() dto: ListResourcesDto) {
     return this.resources.list(dto);
   }
 
-  @Get(':id')
-  findOne(@Param('id', ParseIntPipe) id: number) {
+  @Get('resources/:id')
+  @RequirePermissions(Permission.RESOURCE_READ)
+  findOne(@Param('id', UuidPipe) id: string) {
     return this.resources.findOne(id);
   }
 
-  @Post()
-  @Roles(UserRole.ADMIN)
-  create(@Body() dto: CreateResourceDto, @CurrentUser() actor: AuthUser) {
-    return this.resources.create(dto, actor.id);
+  @Post('resources')
+  @RequirePermissions(Permission.RESOURCE_CREATE)
+  create(@Body() dto: CreateResourceDto, @CurrentUser() user: CoreHubIdentity) {
+    return this.resources.create(dto, user.id);
   }
 
-  @Patch(':id')
-  @Roles(UserRole.ADMIN)
-  update(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: UpdateResourceDto,
-    @CurrentUser() actor: AuthUser,
-  ) {
-    return this.resources.update(id, dto, actor.id);
+  @Patch('resources/:id')
+  @RequirePermissions(Permission.RESOURCE_UPDATE)
+  update(@Param('id', UuidPipe) id: string, @Body() dto: UpdateResourceDto, @CurrentUser() user: CoreHubIdentity) {
+    return this.resources.update(id, dto, user.id);
   }
 
-  @Delete(':id')
-  @Roles(UserRole.ADMIN)
-  remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() actor: AuthUser) {
-    return this.resources.remove(id, actor.id);
+  @Delete('resources/:id')
+  @RequirePermissions(Permission.RESOURCE_DELETE)
+  remove(@Param('id', UuidPipe) id: string, @CurrentUser() user: CoreHubIdentity) {
+    return this.resources.remove(id, user.id);
   }
 }

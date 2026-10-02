@@ -1,131 +1,111 @@
-import {
-  ArgumentsHost,
-  Catch,
-  ExceptionFilter,
-  HttpException,
-  HttpStatus,
-  Logger,
-} from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import { Request, Response } from 'express';
+import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus } from '@nestjs/common';
+import type { Request, Response } from 'express';
+
+import { Prisma } from '../../generated/prisma/client';
+import { ApiException, ErrorCode, codeForStatus } from '../errors';
+import { logEvent } from '../logger';
 
 /**
- * ทุก error ออกทางเดียวกัน:
- *   { error: { code, message, details? }, path, timestamp }
+ * error ทุกตัวออกทางเดียว: { success: false, error: { code, message, details? } }
  *
- * ทำไมต้องรวมศูนย์: ถ้าปล่อยให้แต่ละที่ตอบรูปแบบของตัวเอง
- * ฝั่งที่เรียกต้องเขียนโค้ดอ่าน error หลายแบบ แล้วก็จะอ่านพลาด
+ * - code มาจากรายการปิด 9 ค่าเท่านั้น (api-conventions ข้อ 4)
+ * - ห้ามหลุด stack trace · SQL · path ของไฟล์ ไปกับคำตอบ
+ * - log แค่ `request.path` (ไม่มี query) — URL ของ /auth/callback มี token (auth-contract ข้อ 5.1)
+ * - 429/503 ใส่ Retry-After เสมอ
  */
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
-  private readonly logger = new Logger('Exception');
-
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const res = ctx.getResponse<Response>();
     const req = ctx.getRequest<Request>();
 
-    let status = HttpStatus.INTERNAL_SERVER_ERROR;
-    let code = 'INTERNAL_ERROR';
-    let message = 'เกิดข้อผิดพลาดภายในระบบ';
-    let details: unknown;
+    const { status, code, message, details, retryAfter } = this.describe(exception);
 
-    if (exception instanceof HttpException) {
-      status = exception.getStatus();
-      const body = exception.getResponse() as any;
-
-      if (typeof body === 'string') {
-        message = body;
-        code = defaultCodeFor(status);
-      } else if (Array.isArray(body?.message)) {
-        // ผลจาก ValidationPipe
-        code = 'VALIDATION_FAILED';
-        message = 'ข้อมูลที่ส่งมาไม่ผ่านการตรวจสอบ';
-        details = body.message;
-      } else {
-        code = body?.code ?? defaultCodeFor(status);
-        message = body?.message ?? exception.message;
-        details = body?.details;
-      }
-    } else if (exception instanceof Prisma.PrismaClientKnownRequestError) {
-      ({ status, code, message, details } = mapPrismaError(exception));
-    } else if (exception instanceof Prisma.PrismaClientValidationError) {
-      status = HttpStatus.BAD_REQUEST;
-      code = 'VALIDATION_FAILED';
-      message = 'ข้อมูลที่ส่งเข้าฐานข้อมูลผิดรูปแบบ';
-    } else if (isDbRuleViolation(exception)) {
-      // trigger / CHECK ที่ RAISE EXCEPTION ออกมาเอง
-      status = HttpStatus.CONFLICT;
-      code = 'DB_RULE_VIOLATION';
-      message = cleanPgMessage((exception as any).message);
+    if (status >= 500 && status !== HttpStatus.SERVICE_UNAVAILABLE) {
+      logEvent('request.error', {
+        method: req.method,
+        path: req.path,
+        status,
+        error: exception instanceof Error ? exception.name : typeof exception,
+      });
     }
 
-    if (status >= 500) {
-      this.logger.error(`${req.method} ${req.url}`, (exception as any)?.stack ?? exception);
-    }
+    if (retryAfter !== undefined) res.setHeader('Retry-After', String(retryAfter));
+    if (req.path.startsWith('/auth/')) res.setHeader('Cache-Control', 'no-store');
 
     res.status(status).json({
-      error: { code, message, ...(details ? { details } : {}) },
-      path: req.url,
-      timestamp: new Date().toISOString(),
+      success: false,
+      error: { code, message, ...(details !== undefined ? { details } : {}) },
     });
   }
-}
 
-function defaultCodeFor(status: number): string {
-  return (
-    {
-      400: 'BAD_REQUEST',
-      401: 'UNAUTHORIZED',
-      403: 'FORBIDDEN',
-      404: 'NOT_FOUND',
-      409: 'CONFLICT',
-      422: 'UNPROCESSABLE',
-    }[status] ?? 'ERROR'
-  );
-}
-
-function mapPrismaError(e: Prisma.PrismaClientKnownRequestError) {
-  switch (e.code) {
-    case 'P2002': {
-      const target = (e.meta?.target as string[] | string) ?? 'field';
+  private describe(exception: unknown): {
+    status: number;
+    code: ErrorCode;
+    message: string;
+    details?: unknown;
+    retryAfter?: number;
+  } {
+    if (exception instanceof ApiException) {
       return {
-        status: HttpStatus.CONFLICT,
-        code: 'DUPLICATE',
-        message: `ค่าซ้ำกับที่มีอยู่แล้ว (${Array.isArray(target) ? target.join(', ') : target})`,
-        details: e.meta,
+        status: exception.getStatus(),
+        code: exception.errorCode,
+        message: (exception.getResponse() as { message: string }).message,
+        details: exception.details,
+        retryAfter: exception.retryAfter,
       };
     }
-    case 'P2003':
+
+    if (exception instanceof HttpException) {
+      const status = exception.getStatus();
+      const body = exception.getResponse() as string | { message?: unknown };
+      const raw = typeof body === 'string' ? body : body?.message;
+      // ValidationPipe ส่ง message เป็น array
+      if (Array.isArray(raw)) {
+        return { status: 400, code: 'VALIDATION_ERROR', message: 'ข้อมูลที่ส่งมาไม่ผ่านการตรวจสอบ', details: raw };
+      }
+      const code = codeForStatus(status);
       return {
-        status: HttpStatus.CONFLICT,
-        code: 'FK_VIOLATION',
-        message: 'อ้างถึงข้อมูลที่ไม่มีอยู่ หรือลบไม่ได้เพราะยังมีข้อมูลอื่นอ้างถึงอยู่',
-        details: e.meta,
+        status: code === 'NOT_FOUND' ? 404 : status,
+        code,
+        message: status === HttpStatus.NOT_FOUND || status === HttpStatus.METHOD_NOT_ALLOWED
+          ? 'ไม่พบ endpoint ที่ขอ'
+          : typeof raw === 'string' ? raw : 'คำขอไม่ถูกต้อง',
+        ...(status === 429 ? { retryAfter: 1 } : {}),
       };
-    case 'P2025':
-      return {
-        status: HttpStatus.NOT_FOUND,
-        code: 'NOT_FOUND',
-        message: 'ไม่พบข้อมูลที่ต้องการ',
-        details: e.meta,
-      };
-    default:
-      return {
-        status: HttpStatus.BAD_REQUEST,
-        code: `PRISMA_${e.code}`,
-        message: e.message.split('\n').pop()?.trim() ?? e.message,
-        details: e.meta,
-      };
+    }
+
+    if (exception instanceof Prisma.PrismaClientKnownRequestError) {
+      switch (exception.code) {
+        case 'P2002':
+          return { status: 409, code: 'CONFLICT', message: 'ค่าซ้ำกับข้อมูลที่มีอยู่แล้ว', details: { reason: 'DUPLICATE' } };
+        case 'P2003':
+          return { status: 409, code: 'CONFLICT', message: 'ยังมีข้อมูลอื่นอ้างถึงรายการนี้อยู่', details: { reason: 'IN_USE' } };
+        case 'P2025':
+          return { status: 404, code: 'NOT_FOUND', message: 'ไม่พบข้อมูลที่ต้องการ' };
+        case 'P2024':
+          // pool ของฐานข้อมูลเต็มชั่วคราว (api-conventions ข้อ 4)
+          return { status: 503, code: 'SERVICE_UNAVAILABLE', message: 'ระบบไม่ว่างชั่วคราว กรุณาลองใหม่', retryAfter: 5 };
+        default:
+          return { status: 500, code: 'INTERNAL_ERROR', message: 'เกิดข้อผิดพลาดภายในระบบ' };
+      }
+    }
+
+    if (exception instanceof Prisma.PrismaClientValidationError) {
+      return { status: 400, code: 'VALIDATION_ERROR', message: 'ข้อมูลที่ส่งเข้าฐานข้อมูลผิดรูปแบบ' };
+    }
+
+    if (isDbRuleViolation(exception)) {
+      // trigger / CHECK ที่ RAISE EXCEPTION — กติกาธุรกิจที่ฐานข้อมูลเป็นคนกัน
+      return { status: 409, code: 'CONFLICT', message: 'ขัดกับกติกาของระบบ', details: { reason: 'DB_RULE_VIOLATION' } };
+    }
+
+    return { status: 500, code: 'INTERNAL_ERROR', message: 'เกิดข้อผิดพลาดภายในระบบ' };
   }
 }
 
 function isDbRuleViolation(e: unknown): boolean {
-  const msg = (e as any)?.message;
-  return typeof msg === 'string' && /violates check constraint|RAISE|ต้องเป็น|จัดสรรไม่ได้/.test(msg);
-}
-
-function cleanPgMessage(msg: string): string {
-  const line = msg.split('\n').find((l) => /ERROR|violates|ต้องเป็น|จัดสรรไม่ได้/.test(l));
-  return (line ?? msg).replace(/^.*ERROR:\s*/, '').trim();
+  const msg = (e as { message?: unknown })?.message;
+  return typeof msg === 'string' && /violates check constraint|จัดสรรไม่ได้|ไม่พบคำขอ|เขียนอย่างเดียว/.test(msg);
 }

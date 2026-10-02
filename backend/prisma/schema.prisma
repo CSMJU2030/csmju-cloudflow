@@ -1,31 +1,27 @@
 // ═══════════════════════════════════════════════════════════════════════
-//  CS-CloudFlow — โครงฐานข้อมูล
-//  ออกแบบตาม ER Diagram : users · resources · requests · allocations · audit_logs
-//  ฐานข้อมูล PostgreSQL 16 · ORM Prisma 6
+//  CS-CloudFlow — โครงฐานข้อมูล (standards 1.7.0 · Prisma 7 + PrismaPg)
 //
-//  หมายเหตุสำคัญ: กติกาที่ "ผิดแล้วข้อมูลพัง" ไม่ได้อยู่แค่ในไฟล์นี้
-//  CHECK constraint / trigger / partial unique index / view อยู่ใน
-//  migration `business_constraints` เพราะ Prisma เขียนสิ่งเหล่านี้ตรง ๆ ไม่ได้
+//  resources · requests · allocations · audit_logs
+//
+//  ตัวตนผู้ใช้เป็นของ Core Hub — ระบบนี้ไม่มีตาราง users และไม่เก็บชื่อ/อีเมล/รหัสผ่าน
+//  เก็บแค่ core_user_id (claim sub) กับ person_code (จาก /people/me) ตามที่
+//  standards/docs/reference-data.md ข้อ 8 อนุญาต · รายวิชาเก็บแค่ course_code ของ Core Hub
+//
+//  กติกาที่ Prisma เขียนตรง ๆ ไม่ได้ (CHECK · trigger · partial unique index · view)
+//  อยู่ใน migration — ดู migrations/*_business_constraints และ *_core_hub_identity
 // ═══════════════════════════════════════════════════════════════════════
 
 generator client {
-  provider = "prisma-client-js"
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 // ─────────────────────────── enum ───────────────────────────
-
-enum UserRole {
-  STUDENT
-  TEACHER
-  ADMIN
-
-  @@map("user_role")
-}
 
 enum ResourceStatus {
   AVAILABLE
@@ -38,7 +34,7 @@ enum ResourceStatus {
 
 enum RequestStatus {
   PENDING // ยื่นแล้ว รออาจารย์พิจารณา
-  APPROVED // อาจารย์รับรองแล้ว รอแอดมินจัดเครื่อง
+  APPROVED // อาจารย์รับรองแล้ว รอเจ้าหน้าที่จัดเครื่อง
   REJECTED // ถูกปฏิเสธ — ต้องมี rejectReason
   ALLOCATED // ได้เครื่องแล้ว ใช้งานอยู่
   CANCELLED // ผู้ขอยกเลิกเอง
@@ -47,36 +43,12 @@ enum RequestStatus {
   @@map("request_status")
 }
 
-// ─────────────────────────── users ───────────────────────────
-
-model User {
-  id           Int      @id @default(autoincrement())
-  /// มีเฉพาะ STUDENT — จึงเป็น null ได้ แต่ถ้ามีค่าต้องไม่ซ้ำ
-  /// (PostgreSQL ถือว่า NULL ไม่ชนกันเองใน unique index)
-  studentCode  String?  @unique @map("student_code") @db.VarChar(20)
-  fullName     String   @map("full_name") @db.VarChar(150)
-  email        String   @unique @db.VarChar(150)
-  /// bcrypt hash เท่านั้น — ห้ามเก็บรหัสผ่านดิบ
-  passwordHash String   @map("password_hash") @db.VarChar(255)
-  role         UserRole
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  requestsAsStudent Request[]  @relation("RequestStudent")
-  requestsAsTeacher Request[]  @relation("RequestTeacher")
-  auditLogs         AuditLog[]
-
-  @@index([role])
-  @@map("users")
-}
-
 // ───────────────────────── resources ─────────────────────────
 
 model Resource {
-  id             Int            @id @default(autoincrement())
+  id             String         @id @default(uuid()) @db.Uuid
   serverName     String         @unique @map("server_name") @db.VarChar(100)
-  /// ความจุ "รวม" ของเครื่อง — ไม่ใช่ที่เหลือ
-  /// ที่เหลือคำนวณสดจาก allocations ผ่าน view `resource_usage`
+  /// ความจุ "รวม" ของเครื่อง — ที่เหลือคำนวณสดจาก view `resource_usage`
   totalCpu       Int            @map("total_cpu")
   totalRamGb     Int            @map("total_ram_gb")
   totalStorageGb Int            @map("total_storage_gb")
@@ -94,33 +66,35 @@ model Resource {
 // ────────────────────────── requests ─────────────────────────
 
 model Request {
-  id            Int           @id @default(autoincrement())
-  /// ต้องเป็นผู้ใช้ role = STUDENT (บังคับด้วย trigger requests_enforce_roles)
-  studentId     Int           @map("student_id")
-  /// ต้องเป็นผู้ใช้ role = TEACHER (บังคับด้วย trigger เดียวกัน)
-  teacherId     Int           @map("teacher_id")
-  subjectCode   String        @map("subject_code") @db.VarChar(20)
-  reqCpu        Int           @map("req_cpu")
-  reqRamGb      Int           @map("req_ram_gb")
-  reqStorageGb  Int           @map("req_storage_gb")
-  reqGpu        Boolean       @default(false) @map("req_gpu")
-  reason        String        @db.Text
-  startDate     DateTime      @map("start_date") @db.Date
-  endDate       DateTime      @map("end_date") @db.Date
-  status        RequestStatus @default(PENDING)
+  id                 String        @id @default(uuid()) @db.Uuid
+  /// ผู้ยื่นคำขอ = claim `sub` ของ Core Hub (text ≤ 64 · ไม่ใช่ UUID เสมอไป · ไม่ unique)
+  coreUserId         String        @map("core_user_id") @db.VarChar(64)
+  /// รหัสนักศึกษาจาก GET /people/me ตอนยื่น (null = บัญชียังไม่ผูกกับบุคคล)
+  personCode         String?       @map("person_code") @db.VarChar(64)
+  /// อาจารย์ผู้รับรอง = person_code ของอาจารย์ (null = อาจารย์คนใดก็พิจารณาได้)
+  teacherPersonCode  String?       @map("teacher_person_code") @db.VarChar(64)
+  /// รหัสรายวิชาเต็มรวมรุ่นของ Core Hub เช่น 10301111-1
+  courseCode         String        @map("course_code") @db.VarChar(50)
+  reqCpu             Int           @map("req_cpu")
+  reqRamGb           Int           @map("req_ram_gb")
+  reqStorageGb       Int           @map("req_storage_gb")
+  isGpuRequired      Boolean       @default(false) @map("is_gpu_required")
+  reason             String        @db.Text
+  startDate          DateTime      @map("start_date") @db.Date
+  endDate            DateTime      @map("end_date") @db.Date
+  status             RequestStatus @default(PENDING)
   /// ต้องมีค่าเมื่อ REJECTED และต้องว่างเมื่อไม่ใช่ (CHECK requests_reject_reason_chk)
-  rejectReason  String?       @map("reject_reason") @db.Text
-  /// เพิ่มจาก ER เดิม — แยก "สร้างเมื่อไหร่" ออกจาก "ถูกพิจารณาเมื่อไหร่"
-  reviewedAt    DateTime?     @map("reviewed_at") @db.Timestamptz(6)
-  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  rejectReason       String?       @map("reject_reason") @db.Text
+  /// ผู้พิจารณา = claim `sub` ของคนที่อนุมัติ/ปฏิเสธ
+  reviewerCoreUserId String?       @map("reviewer_core_user_id") @db.VarChar(64)
+  reviewedAt         DateTime?     @map("reviewed_at") @db.Timestamptz(6)
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  student     User         @relation("RequestStudent", fields: [studentId], references: [id], onDelete: Restrict)
-  teacher     User         @relation("RequestTeacher", fields: [teacherId], references: [id], onDelete: Restrict)
   allocations Allocation[]
 
-  @@index([studentId])
-  @@index([teacherId])
+  @@index([coreUserId])
+  @@index([teacherPersonCode])
   @@index([status])
   @@index([createdAt])
   @@map("requests")
@@ -129,19 +103,19 @@ model Request {
 // ───────────────────────── allocations ───────────────────────
 
 model Allocation {
-  id         Int     @id @default(autoincrement())
-  requestId  Int     @map("request_id")
-  resourceId Int     @map("resource_id")
-  /// ใช้ชนิด inet ไม่ใช่ varchar — ฐานข้อมูลตรวจรูปแบบ IP ให้เอง
-  ipAddress  String  @map("ip_address") @db.Inet
+  id         String    @id @default(uuid()) @db.Uuid
+  requestId  String    @map("request_id") @db.Uuid
+  resourceId String    @map("resource_id") @db.Uuid
+  /// ชนิด inet — ฐานข้อมูลตรวจรูปแบบ IP ให้เอง
+  ipAddress  String    @map("ip_address") @db.Inet
   /// 1–65535 (CHECK allocations_port_range_chk)
   port       Int
-  accessNote String? @map("access_note") @db.Text
-
+  accessNote String?   @map("access_note") @db.Text
   assignedAt DateTime  @default(now()) @map("assigned_at") @db.Timestamptz(6)
-  /// เพิ่มจาก ER เดิม — null = ยังใช้อยู่ · มีค่า = คืนเครื่องแล้ว
-  /// ทำให้กัน port ชนได้โดยไม่ต้องลบแถวทิ้ง (ประวัติจึงไม่หาย)
+  /// null = ยังใช้อยู่ · มีค่า = คืนเครื่องแล้ว (ไม่ลบแถว ประวัติจึงไม่หาย)
   releasedAt DateTime? @map("released_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   request  Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
   resource Resource @relation(fields: [resourceId], references: [id], onDelete: Restrict)
@@ -155,18 +129,16 @@ model Allocation {
 // ───────────────────────── audit_logs ────────────────────────
 
 /// ตารางเขียนอย่างเดียว — trigger ปฏิเสธ UPDATE/DELETE
-/// บันทึกที่แก้ย้อนหลังได้ ไม่ใช่บันทึกการตรวจสอบ
 model AuditLog {
-  id        Int      @id @default(autoincrement())
-  /// null = เหตุการณ์ของระบบ (หรือผู้ใช้ถูกลบไปแล้ว)
-  userId    Int?     @map("user_id")
-  action    String   @db.VarChar(100)
-  details   String?  @db.Text
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id         String   @id @default(uuid()) @db.Uuid
+  /// ผู้กระทำ = claim `sub` · null = เหตุการณ์ของระบบ
+  coreUserId String?  @map("core_user_id") @db.VarChar(64)
+  action     String   @db.VarChar(100)
+  details    String?  @db.Text
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
-
-  @@index([userId])
+  @@index([coreUserId])
   @@index([action])
   @@index([createdAt])
   @@map("audit_logs")

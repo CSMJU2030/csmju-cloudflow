@@ -1,31 +1,41 @@
 # manifest ของระบบย่อย — CI และ conformance อ่านไฟล์นี้ไฟล์เดียว
 # schema: standards/schemas/subsystem.schema.json
+# ห้ามใส่บัญชีหรือรหัสผ่านในไฟล์นี้ (ถ้ามี test_accounts conformance จะตก) — บัญชีทดสอบอยู่ในไฟล์นอก repo
+# ที่ CONFORMANCE_ACCOUNTS_FILE ชี้ ดู standards/docs/conformance.md ข้อ 2.1
 
-name: csmju-cloudflow          # ต้องตรงกับทะเบียนใน Core Hub และกับ data.service ของ /api/health
-standards_version: "1.0.0"
-conformance_level: L3                 # L1 · L2 · L3 (ระบบที่มี UI ต้องถึง L3)
+name: csmju-cloudflow          # ตรงกับทะเบียนใน Core Hub, SUBSYSTEM_ID และ data.service ของ /api/health
+# เวอร์ชัน standards อยู่ใน .standards-version ไฟล์เดียว (ตั้งแต่ 1.5.1)
+conformance_level: L3                 # ระบบที่มี UI ต้องถึง L3
 
-base_url: http://localhost:3002       # URL ของระบบย่อยตอนรันเพื่อทดสอบ
-core_hub_url: http://localhost:3000
-callback_path: /auth/callback         # ต้องตรงกับ callback_url ที่ลงทะเบียนไว้
+# frontend เป็นประตูเดียวของระบบ: proxy /api/* และ /auth/login /auth/callback /auth/logout ไป backend (:4208)
+base_url: http://localhost:3208       # พอร์ต frontend ของทีม · localhost ไม่ใช่ 127.0.0.1
+core_hub_url: https://csmju2030.jowave.com       # Core Hub จริง (API อยู่ใต้ /api/v1)
+core_hub_web_url: https://csmju2030.jowave.com   # เว็บที่ /auth/login ส่งเบราว์เซอร์ไป
+callback_path: /auth/callback         # base_url + callback_path = Callback URL ที่ลงทะเบียน (http://localhost:3208/auth/callback)
 
+# endpoint ที่เรียกได้โดยไม่มี token (SSO 1.1)
 public_endpoints:
   - GET /api/health
+  - GET /auth/login
   - GET /auth/callback
+  - POST /auth/logout
 
 # conformance ใช้ probes ตรวจสัญญา API — ประกาศไม่ครบ = ขึ้น SKIP = ยังไม่ผ่าน
 probes:
-  collection: /api/v1/<resources>
-  not_found: /api/v1/<resources>/99999999-9999-4999-8999-999999999999
-  invalid_id: /api/v1/<resources>/not-a-uuid
+  collection: /api/v1/resources
+  not_found: /api/v1/resources/99999999-9999-4999-8999-999999999999
+  invalid_id: /api/v1/resources/not-a-uuid
   create:
-    path: /api/v1/<resources>
+    path: /api/v1/resources
     allowed_role: staff
-    denied_role: student
+    denied_role: guest                # role ที่ต้องได้ 403 และมีบัญชีรหัสผ่าน
     invalid_body:
-      someRequiredField: ""
+      serverName: ""
     valid_body:
-      someRequiredField: value
+      serverName: conformance-probe
+      totalCpu: 1
+      totalRamGb: 1
+      totalStorageGb: 1
 
 owners:
   pl: "@csmju2030/pl-cloudflow"

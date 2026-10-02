@@ -1,38 +1,45 @@
-import { Module } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 
-import { PrismaModule } from './prisma/prisma.module';
-import { AuditModule } from './audit/audit.module';
-import { AuthModule } from './auth/auth.module';
-import { UsersModule } from './users/users.module';
-import { ResourcesModule } from './resources/resources.module';
-import { RequestsModule } from './requests/requests.module';
+import { APP_CONFIG, loadConfig } from './config/configuration';
 import { AllocationsModule } from './allocations/allocations.module';
-import { AuditLogsModule } from './audit-logs/audit-logs.module';
-import { HealthModule } from './health/health.module';
+import { AuditModule } from './audit/audit.module';
+import { AuditLogsModule } from './audit-logs/audit-logs.controller';
+import { AuthModule } from './auth/auth.module';
+import { CoreHubJwtGuard } from './auth/guards/core-hub-jwt.guard';
+import { PermissionsGuard } from './auth/guards/permissions.guard';
+import { CoreHubModule } from './core-hub/core-hub.module';
+import { HealthController } from './health/health.controller';
+import { PrismaModule } from './prisma/prisma.module';
+import { RequestsModule } from './requests/requests.module';
+import { ResourcesModule } from './resources/resources.module';
 
-import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
-import { RolesGuard } from './common/guards/roles.guard';
+@Global()
+@Module({
+  providers: [{ provide: APP_CONFIG, useFactory: () => loadConfig() }],
+  exports: [APP_CONFIG],
+})
+class ConfigProviderModule {}
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ConfigProviderModule,
     PrismaModule,
     AuditModule,
     AuthModule,
-    UsersModule,
+    CoreHubModule,
     ResourcesModule,
     RequestsModule,
     AllocationsModule,
     AuditLogsModule,
-    HealthModule,
   ],
+  controllers: [HealthController],
   providers: [
-    // ปิดทั้งแอปไว้ก่อนเป็นค่าเริ่มต้น แล้วค่อยเปิดเฉพาะจุดด้วย @Public()
-    // ปลอดภัยกว่าการไล่ใส่ guard ทีละ controller ซึ่งลืมได้
-    { provide: APP_GUARD, useClass: JwtAuthGuard },
-    { provide: APP_GUARD, useClass: RolesGuard },
+    // ปิดทั้งแอปไว้ก่อน แล้วเปิดเฉพาะจุดด้วย @Public() (api-conventions ข้อ 7.2)
+    { provide: APP_GUARD, useClass: CoreHubJwtGuard }, // 401 — ใคร?
+    { provide: APP_GUARD, useClass: PermissionsGuard }, // 403 — ทำได้ไหม?
   ],
 })
 export class AppModule {}

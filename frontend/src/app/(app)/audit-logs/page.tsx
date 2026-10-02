@@ -4,24 +4,23 @@ import { useCallback, useEffect, useState } from 'react';
 import { ApiError, api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import type { AuditLog, Paged } from '@/lib/types';
-import { Alert, Card, Empty, Icon, fmtDateTime, initials } from '@/components/ui';
+import { Alert, Card, Empty, Icon, fmtDateTime, personLabel } from '@/components/ui';
 
 const ACTIONS = [
-  'AUTH_LOGIN',
-  'AUTH_REGISTER',
   'REQUEST_CREATE',
+  'REQUEST_UPDATE',
   'REQUEST_APPROVE',
   'REQUEST_REJECT',
   'REQUEST_CANCEL',
   'ALLOCATION_CREATE',
   'ALLOCATION_RELEASE',
-  'USER_CREATE',
-  'USER_DELETE',
   'RESOURCE_CREATE',
+  'RESOURCE_UPDATE',
+  'RESOURCE_DELETE',
 ];
 
 export default function AuditLogsPage() {
-  const { user } = useAuth();
+  const { can } = useAuth();
   const [rows, setRows] = useState<AuditLog[] | null>(null);
   const [total, setTotal] = useState(0);
   const [action, setAction] = useState('');
@@ -44,11 +43,11 @@ export default function AuditLogsPage() {
     load();
   }, [load]);
 
-  if (user?.role !== 'ADMIN') {
+  if (!can('audit-log:read')) {
     return (
       <>
         <h1 className="page-title">Audit Log</h1>
-        <Alert kind="bad">หน้านี้เปิดให้เฉพาะ ADMIN — endpoint /audit-logs ตอบ 403 กับ role อื่น</Alert>
+        <Alert kind="bad">หน้านี้เปิดให้เฉพาะเจ้าหน้าที่ดูแลระบบ</Alert>
       </>
     );
   }
@@ -98,16 +97,12 @@ export default function AuditLogsPage() {
                 <tbody>
                   {rows.map((l) => (
                     <tr key={l.id}>
-                      <td className="mono muted">#{l.id}</td>
+                      <td className="mono muted">{l.id.slice(0, 8)}</td>
                       <td>
-                        {l.user ? (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
-                            <span className="avatar sm">{initials(l.user.fullName)}</span>
-                            <div>
-                              <div className="cell-strong">{l.user.fullName}</div>
-                              <div className="cell-sub">{l.user.role}</div>
-                            </div>
-                          </div>
+                        {l.coreUserId ? (
+                          <span className="mono" title={l.coreUserId}>
+                            {personLabel(null, l.coreUserId)}
+                          </span>
                         ) : (
                           <span className="muted mono">(ระบบ)</span>
                         )}

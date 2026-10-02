@@ -1,75 +1,80 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { UserRole } from '@prisma/client';
 
+import { CurrentUser, UserToken } from '../auth/decorators/current-user.decorator';
+import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
+import type { CoreHubIdentity } from '../auth/core-hub-identity';
+import { Permission } from '../auth/permissions';
+import { UuidPipe } from '../common/pipes/uuid.pipe';
+import { CreateRequestDto, ListRequestsDto, RejectRequestDto, UpdateRequestDto } from './dto/request.dto';
 import { RequestsService } from './requests.service';
-import {
-  CreateRequestDto,
-  ListRequestsDto,
-  RejectRequestDto,
-  UpdateRequestDto,
-} from './dto/request.dto';
-import { Roles } from '../common/decorators/roles.decorator';
-import { AuthUser, CurrentUser } from '../common/decorators/current-user.decorator';
+
+const P = Permission;
 
 @ApiTags('requests')
 @ApiBearerAuth()
-@Controller('requests')
+@Controller('v1/requests')
 export class RequestsController {
   constructor(private readonly requests: RequestsService) {}
 
   @Get()
-  @ApiOperation({
-    summary: 'รายการคำขอ — STUDENT เห็นของตัวเอง · TEACHER เห็นที่ตัวเองรับรอง · ADMIN เห็นทั้งหมด',
-  })
-  list(@Query() dto: ListRequestsDto, @CurrentUser() actor: AuthUser) {
-    return this.requests.list(dto, actor);
+  @RequirePermissions(P.REQUEST_READ_OWN, P.REQUEST_READ_ANY, P.REQUEST_REVIEW_OWN)
+  @ApiOperation({ summary: 'รายการคำขอ — นักศึกษาเห็นของตัวเอง · อาจารย์เห็นที่ตัวเองรับรอง · เจ้าหน้าที่เห็นทั้งหมด' })
+  list(@Query() dto: ListRequestsDto, @CurrentUser() user: CoreHubIdentity, @UserToken() token: string) {
+    return this.requests.list(dto, { user, token });
   }
 
   @Get(':id')
-  findOne(@Param('id', ParseIntPipe) id: number, @CurrentUser() actor: AuthUser) {
-    return this.requests.findOne(id, actor);
+  @RequirePermissions(P.REQUEST_READ_OWN, P.REQUEST_READ_ANY, P.REQUEST_REVIEW_OWN)
+  findOne(@Param('id', UuidPipe) id: string, @CurrentUser() user: CoreHubIdentity, @UserToken() token: string) {
+    return this.requests.findOne(id, { user, token });
   }
 
   @Post()
-  @Roles(UserRole.STUDENT)
-  @ApiOperation({ summary: 'ยื่นคำขอใหม่ (studentId มาจาก token ไม่ใช่จาก body)' })
-  create(@Body() dto: CreateRequestDto, @CurrentUser() actor: AuthUser) {
-    return this.requests.create(dto, actor);
+  @RequirePermissions(P.REQUEST_CREATE_OWN)
+  @ApiOperation({ summary: 'ยื่นคำขอใหม่ (ผู้ยื่นมาจาก token ไม่ใช่จาก body)' })
+  create(@Body() dto: CreateRequestDto, @CurrentUser() user: CoreHubIdentity, @UserToken() token: string) {
+    return this.requests.create(dto, { user, token });
   }
 
   @Patch(':id')
-  @Roles(UserRole.STUDENT)
+  @RequirePermissions(P.REQUEST_UPDATE_OWN)
   @ApiOperation({ summary: 'แก้ไขคำขอของตัวเอง (ได้เฉพาะตอนยังเป็น PENDING)' })
   update(
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', UuidPipe) id: string,
     @Body() dto: UpdateRequestDto,
-    @CurrentUser() actor: AuthUser,
+    @CurrentUser() user: CoreHubIdentity,
+    @UserToken() token: string,
   ) {
-    return this.requests.update(id, dto, actor);
+    return this.requests.update(id, dto, { user, token });
   }
 
-  @Patch(':id/approve')
-  @Roles(UserRole.TEACHER, UserRole.ADMIN)
-  @ApiOperation({ summary: 'อนุมัติคำขอ (เฉพาะอาจารย์ที่ถูกระบุ หรือ ADMIN)' })
-  approve(@Param('id', ParseIntPipe) id: number, @CurrentUser() actor: AuthUser) {
-    return this.requests.approve(id, actor);
+  @Post(':id/approve')
+  @HttpCode(200)
+  @RequirePermissions(P.REQUEST_REVIEW_OWN, P.REQUEST_REVIEW_ANY)
+  @ApiOperation({ summary: 'อนุมัติคำขอ (อาจารย์ที่ถูกระบุ หรือเจ้าหน้าที่)' })
+  approve(@Param('id', UuidPipe) id: string, @CurrentUser() user: CoreHubIdentity, @UserToken() token: string) {
+    return this.requests.approve(id, { user, token });
   }
 
-  @Patch(':id/reject')
-  @Roles(UserRole.TEACHER, UserRole.ADMIN)
+  @Post(':id/reject')
+  @HttpCode(200)
+  @RequirePermissions(P.REQUEST_REVIEW_OWN, P.REQUEST_REVIEW_ANY)
   @ApiOperation({ summary: 'ปฏิเสธคำขอ — ต้องระบุ rejectReason' })
   reject(
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', UuidPipe) id: string,
     @Body() dto: RejectRequestDto,
-    @CurrentUser() actor: AuthUser,
+    @CurrentUser() user: CoreHubIdentity,
+    @UserToken() token: string,
   ) {
-    return this.requests.reject(id, dto, actor);
+    return this.requests.reject(id, dto, { user, token });
   }
 
-  @Patch(':id/cancel')
-  @ApiOperation({ summary: 'ยกเลิกคำขอของตัวเอง (PENDING หรือ APPROVED เท่านั้น)' })
-  cancel(@Param('id', ParseIntPipe) id: number, @CurrentUser() actor: AuthUser) {
-    return this.requests.cancel(id, actor);
+  @Post(':id/cancel')
+  @HttpCode(200)
+  @RequirePermissions(P.REQUEST_CANCEL_OWN, P.REQUEST_CANCEL_ANY)
+  @ApiOperation({ summary: 'ยกเลิกคำขอ (PENDING หรือ APPROVED เท่านั้น)' })
+  cancel(@Param('id', UuidPipe) id: string, @CurrentUser() user: CoreHubIdentity, @UserToken() token: string) {
+    return this.requests.cancel(id, { user, token });
   }
 }

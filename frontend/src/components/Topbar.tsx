@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import type { Paged, ResourceRequest, ResourceUsage } from '@/lib/types';
-import { Icon, clamp, initials } from './ui';
+import { Icon, clamp, displayName, initials } from './ui';
 
 /**
  * จำนวนคำขอที่ยัง active พร้อมกันซึ่งถือว่า "ปกติ" สำหรับนักศึกษาหนึ่งคน
@@ -15,7 +15,7 @@ import { Icon, clamp, initials } from './ui';
 const ACTIVE_REQUEST_GUIDELINE = 2;
 
 export default function Topbar() {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const [pill, setPill] = useState<{ text: string; pct: number; ok: boolean } | null>(null);
 
   useEffect(() => {
@@ -24,7 +24,7 @@ export default function Topbar() {
 
     (async () => {
       try {
-        if (user.role === 'STUDENT') {
+        if (user.subsystemRole === 'STUDENT') {
           // นับคำขอของตัวเองที่ยังเดินอยู่ — ข้อมูลจริงจาก /requests
           const res = await api<Paged<ResourceRequest>>('/requests?limit=100');
           const active = res.data.filter((r) =>
@@ -38,9 +38,9 @@ export default function Topbar() {
             });
         } else {
           // อาจารย์/แอดมินเห็นภาระของคลัสเตอร์รวม — คำนวณจาก view resource_usage
-          const rows = await api<ResourceUsage[]>('/resources/usage');
-          const total = rows.reduce((s, r) => s + r.total_cpu, 0);
-          const used = rows.reduce((s, r) => s + r.used_cpu, 0);
+          const { data: rows } = await api<Paged<ResourceUsage>>('/resource-usages?limit=100');
+          const total = rows.reduce((s, r) => s + r.totalCpu, 0);
+          const used = rows.reduce((s, r) => s + r.usedCpu, 0);
           const pct = total ? Math.round((used / total) * 100) : 0;
           if (alive) setPill({ text: `Cluster Load: ${pct}%`, pct, ok: false });
         }
@@ -71,7 +71,7 @@ export default function Topbar() {
         <span style={{ color: 'var(--muted)', display: 'flex' }}>
           <Icon.bell />
         </span>
-        {user && <span className="avatar sm">{initials(user.fullName)}</span>}
+        {user && <span className="avatar sm">{initials(displayName(user))}</span>}
       </div>
     </header>
   );

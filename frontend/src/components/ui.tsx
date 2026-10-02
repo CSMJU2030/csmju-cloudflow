@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import type { RequestStatus, ResourceStatus, UserRole } from '@/lib/types';
+import type { CoreRole, RequestStatus, ResourceStatus } from '@/lib/types';
 
 /* ── ไอคอน (inline SVG ทั้งหมด ไม่พึ่ง lib ภายนอก) ─────────── */
 
@@ -145,8 +145,24 @@ export function ResourceChip({ status }: { status: ResourceStatus }) {
   return <span className={`chip chip-${tone}`}>{status}</span>;
 }
 
-export function roleLabel(role: UserRole) {
-  return { STUDENT: 'Student', TEACHER: 'Faculty Advisor', ADMIN: 'University Admin' }[role];
+/** คำเรียก core role มาตรฐาน (ui-design-system ข้อ 10.3) — ห้ามแปลเอง */
+export function roleLabel(role: CoreRole) {
+  return (
+    { student: 'นักศึกษา', alumni: 'ศิษย์เก่า', staff: 'บุคลากร/อาจารย์', lecturer: 'อาจารย์', guest: 'ผู้เยี่ยมชม', admin: 'ผู้ดูแลระบบ' }[role] ??
+    role
+  );
+}
+
+/** ชื่อที่แสดงของผู้ใช้ปัจจุบัน — token ไม่มีชื่อ จึงใช้อีเมล (แสดงผลเท่านั้น) */
+export function displayName(user: { email: string | null; id: string }) {
+  return user.email ?? user.id;
+}
+
+/** ระบบนี้ไม่เก็บชื่อบุคคล — แสดงรหัสบุคคลจาก Core Hub แทน */
+export function personLabel(personCode: string | null, coreUserId?: string | null) {
+  if (personCode) return personCode;
+  if (coreUserId?.startsWith('legacy-')) return `ผู้ใช้ระบบเดิม (${coreUserId})`;
+  return coreUserId ? `บัญชี ${coreUserId.slice(0, 8)}…` : '—';
 }
 
 /* ── chip สเปก — ตามแบบในตารางคำขอ ─────────────────────────── */

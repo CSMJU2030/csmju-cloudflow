@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { ApiError, api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import type { Paged, RequestStatus, ResourceRequest } from '@/lib/types';
-import { Alert, Card, Empty, Icon, SpecChip, Stat, StatusChip, days, fmtDate } from '@/components/ui';
+import { Alert, Card, Empty, Icon, SpecChip, Stat, StatusChip, days, fmtDate, personLabel } from '@/components/ui';
 
 type TabKey = 'all' | 'pending' | 'active' | 'closed';
 
@@ -17,15 +17,15 @@ const TABS: { key: TabKey; label: string; match: RequestStatus[] }[] = [
 ];
 
 export default function RequestsPage() {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const [rows, setRows] = useState<ResourceRequest[] | null>(null);
   const [tab, setTab] = useState<TabKey>('pending');
   const [course, setCourse] = useState('');
   const [q, setQ] = useState('');
   const [error, setError] = useState('');
-  const [busyId, setBusyId] = useState<number | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
-  const isReviewer = user?.role === 'TEACHER' || user?.role === 'ADMIN';
+  const isReviewer = can('request:review:own', 'request:review:any');
 
   async function load() {
     try {
@@ -47,7 +47,6 @@ export default function RequestsPage() {
       const hasPending = data.some((r) => r.status === 'PENDING');
       setTab(isReviewer && hasPending ? 'pending' : 'all');
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isReviewer]);
 
   const counts = useMemo(() => {
@@ -60,7 +59,7 @@ export default function RequestsPage() {
   }, [rows]);
 
   const courses = useMemo(
-    () => [...new Set((rows ?? []).map((r) => r.subjectCode))].sort(),
+    () => [...new Set((rows ?? []).map((r) => r.courseCode))].sort(),
     [rows],
   );
 
@@ -68,20 +67,20 @@ export default function RequestsPage() {
     let list = rows ?? [];
     const t = TABS.find((x) => x.key === tab)!;
     if (t.match.length) list = list.filter((r) => t.match.includes(r.status));
-    if (course) list = list.filter((r) => r.subjectCode === course);
+    if (course) list = list.filter((r) => r.courseCode === course);
     if (q.trim()) {
       const needle = q.trim().toLowerCase();
       list = list.filter(
         (r) =>
-          r.student?.fullName.toLowerCase().includes(needle) ||
-          r.student?.studentCode?.includes(needle) ||
-          r.subjectCode.toLowerCase().includes(needle),
+          r.personCode?.toLowerCase().includes(needle) ||
+          r.teacherPersonCode?.toLowerCase().includes(needle) ||
+          r.courseCode.toLowerCase().includes(needle),
       );
     }
     return list;
   }, [rows, tab, course, q]);
 
-  async function act(id: number, kind: 'approve' | 'reject') {
+  async function act(id: string, kind: 'approve' | 'reject') {
     setError('');
     let body: unknown;
     if (kind === 'reject') {
@@ -91,7 +90,7 @@ export default function RequestsPage() {
     }
     setBusyId(id);
     try {
-      await api(`/requests/${id}/${kind}`, { method: 'PATCH', body });
+      await api(`/requests/${id}/${kind}`, { method: 'POST', body });
       await load();
     } catch (e) {
       setError(e instanceof ApiError ? e.readable : 'ทำรายการไม่สำเร็จ');
@@ -138,12 +137,12 @@ export default function RequestsPage() {
           <Icon.search />
           <input
             className="input"
-            placeholder={isReviewer ? 'Search student or ID...' : 'ค้นหารหัสวิชา...'}
+            placeholder={isReviewer ? 'ค้นหารหัสนักศึกษา หรือรหัสวิชา...' : 'ค้นหารหัสวิชา...'}
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
         </div>
-        {!isReviewer && user?.role === 'STUDENT' && (
+        {!isReviewer && can('request:create:own') && (
           <Link href="/requests/new" className="btn btn-primary">
             <Icon.plus /> New Request
           </Link>
@@ -182,21 +181,21 @@ export default function RequestsPage() {
                   {shown.map((r) => (
                     <tr key={r.id}>
                       <td>
-                        <div className="cell-strong">{r.student?.fullName ?? `คำขอ #${r.id}`}</div>
+                        <div className="cell-strong">{personLabel(r.personCode, r.coreUserId)}</div>
                         <div className="cell-sub">
-                          {r.student?.studentCode ? `ID: ${r.student.studentCode}` : `#${r.id}`}
+                          {r.teacherPersonCode ? `ผู้รับรอง: ${r.teacherPersonCode}` : 'ผู้รับรอง: อาจารย์คนใดก็ได้'}
                         </div>
                       </td>
                       <td style={{ maxWidth: 220 }}>
                         <Link href={`/requests/${r.id}`} className="cell-link">
-                          {r.subjectCode}
+                          {r.courseCode}
                         </Link>
                         <div className="cell-sub" style={{ whiteSpace: 'normal' }}>
                           {r.reason.length > 60 ? `${r.reason.slice(0, 60)}…` : r.reason}
                         </div>
                       </td>
                       <td>
-                        <SpecChip cpu={r.reqCpu} ram={r.reqRamGb} gpu={r.reqGpu} plain={!r.reqGpu} />
+                        <SpecChip cpu={r.reqCpu} ram={r.reqRamGb} gpu={r.isGpuRequired} plain={!r.isGpuRequired} />
                       </td>
                       <td style={{ whiteSpace: 'nowrap' }}>
                         <div className="mono" style={{ fontSize: 12 }}>

@@ -1,14 +1,16 @@
-import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { Injectable, OnModuleDestroy } from '@nestjs/common';
+import { PrismaPg } from '@prisma/adapter-pg';
 
+import { PrismaClient } from '../generated/prisma/client';
+
+/** Prisma 7 แบบ driver adapter (PrismaPg) ตาม tech-stack.md ข้อ 1.3 · DATABASE_URL มาจาก backend/.env */
 @Injectable()
-export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
+export class PrismaService extends PrismaClient implements OnModuleDestroy {
   constructor() {
-    super({ log: ['warn', 'error'] });
-  }
-
-  async onModuleInit() {
-    await this.$connect();
+    super({
+      adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
+      log: ['warn', 'error'],
+    });
   }
 
   async onModuleDestroy() {

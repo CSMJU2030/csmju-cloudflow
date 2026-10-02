@@ -1,32 +1,36 @@
-// ชนิดข้อมูลที่ backend ส่งกลับมา — ให้ตรงกับ prisma/schema.prisma
+// ชนิดข้อมูลที่ backend ส่งกลับมา — ให้ตรงกับ backend/prisma/schema.prisma (JSON เป็น camelCase · id เป็น UUID)
 
-export type UserRole = 'STUDENT' | 'TEACHER' | 'ADMIN';
+export type { Paged } from './api';
+
+export type CoreRole = 'student' | 'alumni' | 'staff' | 'lecturer' | 'guest' | 'admin';
+export type SubsystemRole = 'STUDENT' | 'TEACHER' | 'STAFF' | 'ADMIN';
 export type ResourceStatus = 'AVAILABLE' | 'FULL' | 'MAINTENANCE' | 'OFFLINE';
-export type RequestStatus =
-  | 'PENDING'
-  | 'APPROVED'
-  | 'REJECTED'
-  | 'ALLOCATED'
-  | 'CANCELLED'
-  | 'EXPIRED';
+export type RequestStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'ALLOCATED' | 'CANCELLED' | 'EXPIRED';
 
-export interface User {
-  id: number;
-  studentCode: string | null;
-  fullName: string;
-  email: string;
-  role: UserRole;
-  createdAt?: string;
+/** GET /api/v1/me — ตัวตนจาก Core Hub token (ไม่มีชื่อ: Core Hub ไม่ใส่ชื่อใน token) */
+export interface Me {
+  id: string;
+  email: string | null;
+  coreRole: CoreRole;
+  subsystemRole: SubsystemRole;
+  permissions: string[];
+  session: { expiresAt: string };
 }
 
-export interface Teacher {
-  id: number;
-  fullName: string;
-  email: string;
+export interface Advisor {
+  personCode: string;
+  fullNameTh: string;
+}
+
+export interface Course {
+  code: string;
+  nameTh: string;
+  nameEn: string | null;
+  credits: number;
 }
 
 export interface Resource {
-  id: number;
+  id: string;
   serverName: string;
   totalCpu: number;
   totalRamGb: number;
@@ -35,28 +39,28 @@ export interface Resource {
   status: ResourceStatus;
 }
 
-/** อ่านจาก view resource_usage — คำนวณสดทุกครั้ง ไม่ได้เก็บไว้ในตาราง */
+/** GET /api/v1/resource-usages — คำนวณสดจาก view resource_usage */
 export interface ResourceUsage {
-  resource_id: number;
-  server_name: string;
+  resourceId: string;
+  serverName: string;
   status: ResourceStatus;
-  has_gpu: boolean;
-  total_cpu: number;
-  total_ram_gb: number;
-  total_storage_gb: number;
-  used_cpu: number;
-  used_ram_gb: number;
-  used_storage_gb: number;
-  free_cpu: number;
-  free_ram_gb: number;
-  free_storage_gb: number;
-  active_allocations: number;
+  hasGpu: boolean;
+  totalCpu: number;
+  totalRamGb: number;
+  totalStorageGb: number;
+  usedCpu: number;
+  usedRamGb: number;
+  usedStorageGb: number;
+  freeCpu: number;
+  freeRamGb: number;
+  freeStorageGb: number;
+  activeAllocations: number;
 }
 
 export interface Allocation {
-  id: number;
-  requestId: number;
-  resourceId: number;
+  id: string;
+  requestId: string;
+  resourceId: string;
   ipAddress: string;
   port: number;
   accessNote: string | null;
@@ -64,54 +68,42 @@ export interface Allocation {
   releasedAt: string | null;
   resource?: Pick<Resource, 'id' | 'serverName' | 'hasGpu' | 'status'>;
   request?: {
-    id: number;
+    id: string;
     status: RequestStatus;
-    subjectCode: string;
+    courseCode: string;
     reqCpu: number;
     reqRamGb: number;
     reqStorageGb: number;
-    studentId: number;
-    student?: { id: number; fullName: string; studentCode: string | null };
+    coreUserId: string;
+    personCode: string | null;
   };
 }
 
 export interface ResourceRequest {
-  id: number;
-  studentId: number;
-  teacherId: number;
-  subjectCode: string;
+  id: string;
+  coreUserId: string;
+  personCode: string | null;
+  teacherPersonCode: string | null;
+  courseCode: string;
   reqCpu: number;
   reqRamGb: number;
   reqStorageGb: number;
-  reqGpu: boolean;
+  isGpuRequired: boolean;
   reason: string;
   startDate: string;
   endDate: string;
   status: RequestStatus;
   rejectReason: string | null;
+  reviewerCoreUserId: string | null;
   reviewedAt: string | null;
   createdAt: string;
-  student?: { id: number; studentCode: string | null; fullName: string; email: string };
-  teacher?: { id: number; fullName: string; email: string };
-  allocations?: Allocation[];
+  allocations?: (Allocation & { resource?: { serverName: string; hasGpu: boolean } })[];
 }
 
 export interface AuditLog {
-  id: number;
-  userId: number | null;
+  id: string;
+  coreUserId: string | null;
   action: string;
   details: string | null;
   createdAt: string;
-  user?: { id: number; fullName: string; email: string; role: UserRole } | null;
-}
-
-export interface Paged<T> {
-  data: T[];
-  meta: { total: number; page: number; limit: number; pageCount: number };
-}
-
-export interface LoginResult {
-  accessToken: string;
-  expiresIn: string;
-  user: User;
 }

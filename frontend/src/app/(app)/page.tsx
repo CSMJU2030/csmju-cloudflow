@@ -15,11 +15,13 @@ import {
   StatusChip,
   clamp,
   days,
+  displayName,
   fmtDate,
+  personLabel,
 } from '@/components/ui';
 
 export default function DashboardPage() {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const [usage, setUsage] = useState<ResourceUsage[] | null>(null);
   const [recent, setRecent] = useState<ResourceRequest[] | null>(null);
   const [error, setError] = useState('');
@@ -28,10 +30,10 @@ export default function DashboardPage() {
     (async () => {
       try {
         const [u, r] = await Promise.all([
-          api<ResourceUsage[]>('/resources/usage'),
+          api<Paged<ResourceUsage>>('/resource-usages?limit=100'),
           api<Paged<ResourceRequest>>('/requests?limit=8'),
         ]);
-        setUsage(u);
+        setUsage(u.data);
         setRecent(r.data);
       } catch (e) {
         setError(e instanceof ApiError ? e.readable : 'โหลดข้อมูลไม่สำเร็จ');
@@ -47,7 +49,7 @@ export default function DashboardPage() {
     return {
       pending: r.filter((x) => x.status === 'PENDING').length,
       allocated: r.filter((x) => x.status === 'ALLOCATED').length,
-      nodesFree: n.filter((x) => x.status === 'AVAILABLE' && x.free_cpu > 0).length,
+      nodesFree: n.filter((x) => x.status === 'AVAILABLE' && x.freeCpu > 0).length,
       nodesTotal: n.length,
     };
   }, [recent, usage]);
@@ -56,14 +58,14 @@ export default function DashboardPage() {
     <>
       <h1 className="page-title">Dashboard</h1>
       <p className="page-sub">
-        สวัสดี {user?.fullName} — ภาพรวมของระบบขอใช้ทรัพยากร
+        สวัสดี {user ? displayName(user) : ''} — ภาพรวมของระบบขอใช้ทรัพยากร
       </p>
 
       <Alert kind="bad">{error}</Alert>
 
       <div className="grid cols-3" style={{ marginBottom: 18 }}>
         <Stat
-          label={user?.role === 'STUDENT' ? 'คำขอที่รอพิจารณา' : 'Pending Approvals'}
+          label={can('request:create:own') ? 'คำขอที่รอพิจารณา' : 'Pending Approvals'}
           value={stats.pending}
           icon={<Icon.clip />}
           tone="brand"
@@ -94,7 +96,7 @@ export default function DashboardPage() {
           ) : recent.length === 0 ? (
             <Empty>
               ยังไม่มีคำขอ
-              {user?.role === 'STUDENT' && (
+              {can('request:create:own') && (
                 <div style={{ marginTop: 12 }}>
                   <Link href="/requests/new" className="btn btn-primary btn-sm">
                     <Icon.plus /> ยื่นคำขอแรก
@@ -118,12 +120,12 @@ export default function DashboardPage() {
                     <tr key={r.id}>
                       <td>
                         <Link href={`/requests/${r.id}`} className="cell-link">
-                          {r.subjectCode}
+                          {r.courseCode}
                         </Link>
-                        <div className="cell-sub">{r.student?.fullName ?? `#${r.id}`}</div>
+                        <div className="cell-sub">{personLabel(r.personCode, r.coreUserId)}</div>
                       </td>
                       <td>
-                        <SpecChip cpu={r.reqCpu} ram={r.reqRamGb} gpu={r.reqGpu} plain={!r.reqGpu} />
+                        <SpecChip cpu={r.reqCpu} ram={r.reqRamGb} gpu={r.isGpuRequired} plain={!r.isGpuRequired} />
                       </td>
                       <td className="mono" style={{ fontSize: 12 }}>
                         {fmtDate(r.startDate)} – {fmtDate(r.endDate)}
@@ -145,9 +147,9 @@ export default function DashboardPage() {
             <p className="mono muted">กำลังโหลด…</p>
           ) : (
             usage.map((n) => {
-              const p = n.total_cpu ? Math.round((n.used_cpu / n.total_cpu) * 100) : 0;
+              const p = n.totalCpu ? Math.round((n.usedCpu / n.totalCpu) * 100) : 0;
               return (
-                <div key={n.resource_id} style={{ marginBottom: 14 }}>
+                <div key={n.resourceId} style={{ marginBottom: 14 }}>
                   <div
                     style={{
                       display: 'flex',
@@ -156,11 +158,11 @@ export default function DashboardPage() {
                     }}
                   >
                     <span className="mono" style={{ fontSize: 12, fontWeight: 600 }}>
-                      {n.server_name}
-                      {n.has_gpu && <span className="muted"> · GPU</span>}
+                      {n.serverName}
+                      {n.hasGpu && <span className="muted"> · GPU</span>}
                     </span>
                     <span className="mono muted" style={{ fontSize: 11 }}>
-                      free {n.free_cpu}/{n.total_cpu}
+                      free {n.freeCpu}/{n.totalCpu}
                     </span>
                   </div>
                   <div className="meter">

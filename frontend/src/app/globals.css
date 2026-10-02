@@ -258,7 +258,8 @@ textarea {
   gap: 2px;
 }
 
-.rail a.nav {
+.rail a.nav,
+.rail button.nav-button {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -270,7 +271,17 @@ textarea {
   transition: background 0.12s ease, color 0.12s ease;
 }
 
-.rail a.nav:hover {
+.rail button.nav-button {
+  width: 100%;
+  background: none;
+  border: none;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.rail a.nav:hover,
+.rail button.nav-button:hover {
   background: var(--surface-2);
 }
 

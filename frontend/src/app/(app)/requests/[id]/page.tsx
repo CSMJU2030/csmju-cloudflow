@@ -15,12 +15,13 @@ import {
   days,
   daysLeft,
   fmtDateTime,
+  personLabel,
 } from '@/components/ui';
 
 export default function RequestDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, can } = useAuth();
 
   const [req, setReq] = useState<ResourceRequest | null>(null);
   const [error, setError] = useState('');
@@ -43,7 +44,7 @@ export default function RequestDetailPage() {
     setError('');
     setBusy(true);
     try {
-      await api(path, { method: 'PATCH', body });
+      await api(path, { method: 'POST', body });
       await load();
     } catch (e) {
       setError(e instanceof ApiError ? e.readable : 'ทำรายการไม่สำเร็จ');
@@ -63,11 +64,12 @@ export default function RequestDetailPage() {
   if (!req) return <p className="mono muted">กำลังโหลด…</p>;
 
   const active: Allocation | undefined = req.allocations?.find((a) => !a.releasedAt);
-  const isOwner = user?.id === req.studentId;
-  const isAssignedTeacher = user?.role === 'TEACHER' && user.id === req.teacherId;
-  const isAdmin = user?.role === 'ADMIN';
-  const canReview = (isAssignedTeacher || isAdmin) && req.status === 'PENDING';
-  const canCancel = (isOwner || isAdmin) && ['PENDING', 'APPROVED'].includes(req.status);
+  const isOwner = user?.id === req.coreUserId;
+  const isAdmin = can('allocation:create');
+  // อาจารย์เห็นคำขอนี้ได้ก็ต่อเมื่อเป็นผู้รับรองที่ถูกระบุ (หรือไม่ได้ระบุใคร) — backend ตรวจซ้ำทุกครั้ง
+  const canReview = can('request:review:own', 'request:review:any') && req.status === 'PENDING';
+  const canCancel =
+    ((isOwner && can('request:cancel:own')) || can('request:cancel:any')) && ['PENDING', 'APPROVED'].includes(req.status);
   const left = daysLeft(req.endDate);
 
   return (
@@ -75,11 +77,12 @@ export default function RequestDetailPage() {
       <BackLink />
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        <h1 className="page-title">{req.subjectCode}</h1>
+        <h1 className="page-title">{req.courseCode}</h1>
         <StatusChip status={req.status} />
       </div>
       <p className="page-sub">
-        คำขอ #{req.id} · ยื่นโดย {req.student?.fullName ?? '—'} · ผู้รับรอง {req.teacher?.fullName ?? '—'}
+        คำขอ {req.id.slice(0, 8)} · ยื่นโดย {personLabel(req.personCode, req.coreUserId)} · ผู้รับรอง{' '}
+        {req.teacherPersonCode ?? 'อาจารย์คนใดก็ได้'}
       </p>
 
       <Alert kind="bad">{error}</Alert>
@@ -121,7 +124,7 @@ export default function RequestDetailPage() {
                 </div>
                 <div className="dfield">
                   <div className="k">USERNAME</div>
-                  <div className="v">{req.student?.studentCode ?? 'student'}</div>
+                  <div className="v">{sshUser(req)}</div>
                 </div>
               </div>
 
@@ -170,7 +173,7 @@ export default function RequestDetailPage() {
           <Card title="Request Details">
             <div className="grid cols-2">
               <Field k="Requested Specs">
-                <SpecChip cpu={req.reqCpu} ram={req.reqRamGb} gpu={req.reqGpu} plain={!req.reqGpu} />
+                <SpecChip cpu={req.reqCpu} ram={req.reqRamGb} gpu={req.isGpuRequired} plain={!req.isGpuRequired} />
                 <div className="cell-sub">Storage {req.reqStorageGb} GB</div>
               </Field>
               <Field k="Duration">
@@ -217,7 +220,7 @@ export default function RequestDetailPage() {
                   <tbody>
                     {req.allocations.map((a) => (
                       <tr key={a.id}>
-                        <td className="mono">{a.resource?.serverName ?? `#${a.resourceId}`}</td>
+                        <td className="mono">{a.resource?.serverName ?? a.resourceId.slice(0, 8)}</td>
                         <td className="mono">
                           {a.ipAddress}:{a.port}
                         </td>
@@ -322,6 +325,10 @@ function Field({ k, children }: { k: string; children: React.ReactNode }) {
 
 /** คำสั่งเชื่อมต่อ — ประกอบจากข้อมูลจริงของ allocation ไม่ได้ hardcode */
 function sshCommand(req: ResourceRequest, a: Allocation) {
-  const userName = req.student?.studentCode ?? 'student';
-  return `ssh ${userName}@${a.ipAddress} -p ${a.port}`;
+  return `ssh ${sshUser(req)}@${a.ipAddress} -p ${a.port}`;
+}
+
+/** ชื่อผู้ใช้บนเครื่อง = รหัสนักศึกษาจาก Core Hub (ถ้ามี) */
+function sshUser(req: ResourceRequest) {
+  return req.personCode ?? 'student';
 }

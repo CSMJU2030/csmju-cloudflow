@@ -4,42 +4,36 @@ import type { ReactElement } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
-import { Icon, initials, roleLabel } from './ui';
-import type { UserRole } from '@/lib/types';
+import { Icon, displayName, initials, roleLabel } from './ui';
 
-const NAV: { href: string; label: string; icon: () => ReactElement; roles?: UserRole[] }[] = [
+/** ซ่อนเมนูตาม permission เป็นเรื่องความสะดวก — ด่านจริงอยู่ที่ PermissionsGuard ฝั่ง backend */
+const NAV: { href: string; label: string; icon: () => ReactElement; perms?: string[] }[] = [
   { href: '/', label: 'Dashboard', icon: Icon.grid },
   { href: '/requests', label: 'Requests', icon: Icon.inbox },
   { href: '/resources', label: 'Infrastructure', icon: Icon.server },
-  // ไม่มีเมนูนี้ให้ TEACHER เพราะ GET /allocations กรองด้วย request.studentId = ตัวเอง
-  // อาจารย์ไม่มีทางเป็นนักศึกษา หน้านี้จึงว่างเปล่าตลอดกาลสำหรับ role นี้
-  // (อาจารย์ดูเครื่องที่นักศึกษาได้รับ ผ่านหน้ารายละเอียดคำขอที่ตัวเองรับรองแทน)
-  { href: '/allocations', label: 'Allocations', icon: Icon.node, roles: ['STUDENT', 'ADMIN'] },
-  { href: '/audit-logs', label: 'Audit Log', icon: Icon.history, roles: ['ADMIN'] },
-  { href: '/users', label: 'Settings', icon: Icon.gear, roles: ['ADMIN'] },
+  { href: '/allocations', label: 'Allocations', icon: Icon.node, perms: ['allocation:read:own', 'allocation:read:any'] },
+  { href: '/audit-logs', label: 'Audit Log', icon: Icon.history, perms: ['audit-log:read'] },
 ];
 
 export default function Rail() {
-  const { user, signOut } = useAuth();
+  const { user, signOut, can } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
   if (!user) return null;
 
-  // ซ่อนเมนูตาม role เป็นเรื่องความสะดวก ไม่ใช่การกันสิทธิ์ —
-  // ด่านจริงอยู่ที่ RolesGuard ฝั่ง backend เพราะโค้ดหน้านี้อยู่บนเครื่องผู้ใช้แล้ว
-  const items = NAV.filter((n) => !n.roles || n.roles.includes(user.role));
+  const items = NAV.filter((n) => !n.perms || can(...n.perms));
 
   return (
     <aside className="rail">
       <div className="rail-user">
-        <div className="avatar">{initials(user.fullName)}</div>
+        <div className="avatar">{initials(displayName(user))}</div>
         <div style={{ minWidth: 0 }}>
-          <div className="rail-name">{user.fullName}</div>
-          <div className="rail-role">{roleLabel(user.role)}</div>
+          <div className="rail-name">{displayName(user)}</div>
+          <div className="rail-role">{roleLabel(user.coreRole)}</div>
         </div>
       </div>
 
-      {user.role === 'STUDENT' && (
+      {can('request:create:own') && (
         <button className="btn btn-primary btn-block" onClick={() => router.push('/requests/new')}>
           <Icon.plus /> New Request
         </button>
@@ -63,7 +57,7 @@ export default function Rail() {
         <Link href="/requests" className="nav">
           <Icon.help /> Help Center
         </Link>
-        <button className="nav" onClick={signOut} style={{ background: 'none', border: 'none', textAlign: 'left', width: '100%' }}>
+        <button type="button" className="nav nav-button" onClick={signOut}>
           <Icon.logout /> Logout
         </button>
       </div>
