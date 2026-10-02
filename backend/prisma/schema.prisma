@@ -1,0 +1,145 @@
+// ═══════════════════════════════════════════════════════════════════════
+//  CS-CloudFlow — โครงฐานข้อมูล (standards 1.7.0 · Prisma 7 + PrismaPg)
+//
+//  resources · requests · allocations · audit_logs
+//
+//  ตัวตนผู้ใช้เป็นของ Core Hub — ระบบนี้ไม่มีตาราง users และไม่เก็บชื่อ/อีเมล/รหัสผ่าน
+//  เก็บแค่ core_user_id (claim sub) กับ person_code (จาก /people/me) ตามที่
+//  standards/docs/reference-data.md ข้อ 8 อนุญาต · รายวิชาเก็บแค่ course_code ของ Core Hub
+//
+//  กติกาที่ Prisma เขียนตรง ๆ ไม่ได้ (CHECK · trigger · partial unique index · view)
+//  อยู่ใน migration — ดู migrations/*_business_constraints และ *_core_hub_identity
+// ═══════════════════════════════════════════════════════════════════════
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────── enum ───────────────────────────
+
+enum ResourceStatus {
+  AVAILABLE
+  FULL
+  MAINTENANCE
+  OFFLINE
+
+  @@map("resource_status")
+}
+
+enum RequestStatus {
+  PENDING // ยื่นแล้ว รออาจารย์พิจารณา
+  APPROVED // อาจารย์รับรองแล้ว รอเจ้าหน้าที่จัดเครื่อง
+  REJECTED // ถูกปฏิเสธ — ต้องมี rejectReason
+  ALLOCATED // ได้เครื่องแล้ว ใช้งานอยู่
+  CANCELLED // ผู้ขอยกเลิกเอง
+  EXPIRED // คืนเครื่อง / หมดอายุแล้ว
+
+  @@map("request_status")
+}
+
+// ───────────────────────── resources ─────────────────────────
+
+model Resource {
+  id             String         @id @default(uuid()) @db.Uuid
+  serverName     String         @unique @map("server_name") @db.VarChar(100)
+  /// ความจุ "รวม" ของเครื่อง — ที่เหลือคำนวณสดจาก view `resource_usage`
+  totalCpu       Int            @map("total_cpu")
+  totalRamGb     Int            @map("total_ram_gb")
+  totalStorageGb Int            @map("total_storage_gb")
+  hasGpu         Boolean        @default(false) @map("has_gpu")
+  status         ResourceStatus @default(AVAILABLE)
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  allocations Allocation[]
+
+  @@index([status])
+  @@map("resources")
+}
+
+// ────────────────────────── requests ─────────────────────────
+
+model Request {
+  id                 String        @id @default(uuid()) @db.Uuid
+  /// ผู้ยื่นคำขอ = claim `sub` ของ Core Hub (text ≤ 64 · ไม่ใช่ UUID เสมอไป · ไม่ unique)
+  coreUserId         String        @map("core_user_id") @db.VarChar(64)
+  /// รหัสนักศึกษาจาก GET /people/me ตอนยื่น (null = บัญชียังไม่ผูกกับบุคคล)
+  personCode         String?       @map("person_code") @db.VarChar(64)
+  /// อาจารย์ผู้รับรอง = person_code ของอาจารย์ (null = อาจารย์คนใดก็พิจารณาได้)
+  teacherPersonCode  String?       @map("teacher_person_code") @db.VarChar(64)
+  /// รหัสรายวิชาเต็มรวมรุ่นของ Core Hub เช่น 10301111-1
+  courseCode         String        @map("course_code") @db.VarChar(50)
+  reqCpu             Int           @map("req_cpu")
+  reqRamGb           Int           @map("req_ram_gb")
+  reqStorageGb       Int           @map("req_storage_gb")
+  isGpuRequired      Boolean       @default(false) @map("is_gpu_required")
+  reason             String        @db.Text
+  startDate          DateTime      @map("start_date") @db.Date
+  endDate            DateTime      @map("end_date") @db.Date
+  status             RequestStatus @default(PENDING)
+  /// ต้องมีค่าเมื่อ REJECTED และต้องว่างเมื่อไม่ใช่ (CHECK requests_reject_reason_chk)
+  rejectReason       String?       @map("reject_reason") @db.Text
+  /// ผู้พิจารณา = claim `sub` ของคนที่อนุมัติ/ปฏิเสธ
+  reviewerCoreUserId String?       @map("reviewer_core_user_id") @db.VarChar(64)
+  reviewedAt         DateTime?     @map("reviewed_at") @db.Timestamptz(6)
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  allocations Allocation[]
+
+  @@index([coreUserId])
+  @@index([teacherPersonCode])
+  @@index([status])
+  @@index([createdAt])
+  @@map("requests")
+}
+
+// ───────────────────────── allocations ───────────────────────
+
+model Allocation {
+  id         String    @id @default(uuid()) @db.Uuid
+  requestId  String    @map("request_id") @db.Uuid
+  resourceId String    @map("resource_id") @db.Uuid
+  /// ชนิด inet — ฐานข้อมูลตรวจรูปแบบ IP ให้เอง
+  ipAddress  String    @map("ip_address") @db.Inet
+  /// 1–65535 (CHECK allocations_port_range_chk)
+  port       Int
+  accessNote String?   @map("access_note") @db.Text
+  assignedAt DateTime  @default(now()) @map("assigned_at") @db.Timestamptz(6)
+  /// null = ยังใช้อยู่ · มีค่า = คืนเครื่องแล้ว (ไม่ลบแถว ประวัติจึงไม่หาย)
+  releasedAt DateTime? @map("released_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  request  Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Restrict)
+
+  @@index([requestId])
+  @@index([resourceId])
+  @@index([releasedAt])
+  @@map("allocations")
+}
+
+// ───────────────────────── audit_logs ────────────────────────
+
+/// ตารางเขียนอย่างเดียว — trigger ปฏิเสธ UPDATE/DELETE
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  /// ผู้กระทำ = claim `sub` · null = เหตุการณ์ของระบบ
+  coreUserId String?  @map("core_user_id") @db.VarChar(64)
+  action     String   @db.VarChar(100)
+  details    String?  @db.Text
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([coreUserId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

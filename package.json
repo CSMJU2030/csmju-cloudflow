@@ -1,5 +1,13 @@
 {
   "name": "csmju-cloudflow",
   "private": true,
-  "packageManager": "pnpm@9.15.9"
+  "packageManager": "pnpm@12.3.4",
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "db:deploy": "pnpm --filter backend db:deploy",
+    "db:seed": "pnpm --filter backend db:seed"
+  }
 }
