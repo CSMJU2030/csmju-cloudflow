@@ -1,0 +1,173 @@
+// ═══════════════════════════════════════════════════════════════════════
+//  CS-CloudFlow — โครงฐานข้อมูล
+//  ออกแบบตาม ER Diagram : users · resources · requests · allocations · audit_logs
+//  ฐานข้อมูล PostgreSQL 16 · ORM Prisma 6
+//
+//  หมายเหตุสำคัญ: กติกาที่ "ผิดแล้วข้อมูลพัง" ไม่ได้อยู่แค่ในไฟล์นี้
+//  CHECK constraint / trigger / partial unique index / view อยู่ใน
+//  migration `business_constraints` เพราะ Prisma เขียนสิ่งเหล่านี้ตรง ๆ ไม่ได้
+// ═══════════════════════════════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────── enum ───────────────────────────
+
+enum UserRole {
+  STUDENT
+  TEACHER
+  ADMIN
+
+  @@map("user_role")
+}
+
+enum ResourceStatus {
+  AVAILABLE
+  FULL
+  MAINTENANCE
+  OFFLINE
+
+  @@map("resource_status")
+}
+
+enum RequestStatus {
+  PENDING // ยื่นแล้ว รออาจารย์พิจารณา
+  APPROVED // อาจารย์รับรองแล้ว รอแอดมินจัดเครื่อง
+  REJECTED // ถูกปฏิเสธ — ต้องมี rejectReason
+  ALLOCATED // ได้เครื่องแล้ว ใช้งานอยู่
+  CANCELLED // ผู้ขอยกเลิกเอง
+  EXPIRED // คืนเครื่อง / หมดอายุแล้ว
+
+  @@map("request_status")
+}
+
+// ─────────────────────────── users ───────────────────────────
+
+model User {
+  id           Int      @id @default(autoincrement())
+  /// มีเฉพาะ STUDENT — จึงเป็น null ได้ แต่ถ้ามีค่าต้องไม่ซ้ำ
+  /// (PostgreSQL ถือว่า NULL ไม่ชนกันเองใน unique index)
+  studentCode  String?  @unique @map("student_code") @db.VarChar(20)
+  fullName     String   @map("full_name") @db.VarChar(150)
+  email        String   @unique @db.VarChar(150)
+  /// bcrypt hash เท่านั้น — ห้ามเก็บรหัสผ่านดิบ
+  passwordHash String   @map("password_hash") @db.VarChar(255)
+  role         UserRole
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  requestsAsStudent Request[]  @relation("RequestStudent")
+  requestsAsTeacher Request[]  @relation("RequestTeacher")
+  auditLogs         AuditLog[]
+
+  @@index([role])
+  @@map("users")
+}
+
+// ───────────────────────── resources ─────────────────────────
+
+model Resource {
+  id             Int            @id @default(autoincrement())
+  serverName     String         @unique @map("server_name") @db.VarChar(100)
+  /// ความจุ "รวม" ของเครื่อง — ไม่ใช่ที่เหลือ
+  /// ที่เหลือคำนวณสดจาก allocations ผ่าน view `resource_usage`
+  totalCpu       Int            @map("total_cpu")
+  totalRamGb     Int            @map("total_ram_gb")
+  totalStorageGb Int            @map("total_storage_gb")
+  hasGpu         Boolean        @default(false) @map("has_gpu")
+  status         ResourceStatus @default(AVAILABLE)
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  allocations Allocation[]
+
+  @@index([status])
+  @@map("resources")
+}
+
+// ────────────────────────── requests ─────────────────────────
+
+model Request {
+  id            Int           @id @default(autoincrement())
+  /// ต้องเป็นผู้ใช้ role = STUDENT (บังคับด้วย trigger requests_enforce_roles)
+  studentId     Int           @map("student_id")
+  /// ต้องเป็นผู้ใช้ role = TEACHER (บังคับด้วย trigger เดียวกัน)
+  teacherId     Int           @map("teacher_id")
+  subjectCode   String        @map("subject_code") @db.VarChar(20)
+  reqCpu        Int           @map("req_cpu")
+  reqRamGb      Int           @map("req_ram_gb")
+  reqStorageGb  Int           @map("req_storage_gb")
+  reqGpu        Boolean       @default(false) @map("req_gpu")
+  reason        String        @db.Text
+  startDate     DateTime      @map("start_date") @db.Date
+  endDate       DateTime      @map("end_date") @db.Date
+  status        RequestStatus @default(PENDING)
+  /// ต้องมีค่าเมื่อ REJECTED และต้องว่างเมื่อไม่ใช่ (CHECK requests_reject_reason_chk)
+  rejectReason  String?       @map("reject_reason") @db.Text
+  /// เพิ่มจาก ER เดิม — แยก "สร้างเมื่อไหร่" ออกจาก "ถูกพิจารณาเมื่อไหร่"
+  reviewedAt    DateTime?     @map("reviewed_at") @db.Timestamptz(6)
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  student     User         @relation("RequestStudent", fields: [studentId], references: [id], onDelete: Restrict)
+  teacher     User         @relation("RequestTeacher", fields: [teacherId], references: [id], onDelete: Restrict)
+  allocations Allocation[]
+
+  @@index([studentId])
+  @@index([teacherId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("requests")
+}
+
+// ───────────────────────── allocations ───────────────────────
+
+model Allocation {
+  id         Int     @id @default(autoincrement())
+  requestId  Int     @map("request_id")
+  resourceId Int     @map("resource_id")
+  /// ใช้ชนิด inet ไม่ใช่ varchar — ฐานข้อมูลตรวจรูปแบบ IP ให้เอง
+  ipAddress  String  @map("ip_address") @db.Inet
+  /// 1–65535 (CHECK allocations_port_range_chk)
+  port       Int
+  accessNote String? @map("access_note") @db.Text
+
+  assignedAt DateTime  @default(now()) @map("assigned_at") @db.Timestamptz(6)
+  /// เพิ่มจาก ER เดิม — null = ยังใช้อยู่ · มีค่า = คืนเครื่องแล้ว
+  /// ทำให้กัน port ชนได้โดยไม่ต้องลบแถวทิ้ง (ประวัติจึงไม่หาย)
+  releasedAt DateTime? @map("released_at") @db.Timestamptz(6)
+
+  request  Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  resource Resource @relation(fields: [resourceId], references: [id], onDelete: Restrict)
+
+  @@index([requestId])
+  @@index([resourceId])
+  @@index([releasedAt])
+  @@map("allocations")
+}
+
+// ───────────────────────── audit_logs ────────────────────────
+
+/// ตารางเขียนอย่างเดียว — trigger ปฏิเสธ UPDATE/DELETE
+/// บันทึกที่แก้ย้อนหลังได้ ไม่ใช่บันทึกการตรวจสอบ
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  /// null = เหตุการณ์ของระบบ (หรือผู้ใช้ถูกลบไปแล้ว)
+  userId    Int?     @map("user_id")
+  action    String   @db.VarChar(100)
+  details   String?  @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
