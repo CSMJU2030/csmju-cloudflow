@@ -12,6 +12,7 @@ const NAV: { href: string; label: string; icon: () => ReactElement; perms?: stri
   { href: '/requests', label: 'Requests', icon: Icon.inbox },
   { href: '/resources', label: 'Infrastructure', icon: Icon.server },
   { href: '/allocations', label: 'Allocations', icon: Icon.node, perms: ['allocation:read:own', 'allocation:read:any'] },
+  { href: '/storage', label: 'Cloud Storage', icon: Icon.disk, perms: ['storage-pool:read'] },
   { href: '/audit-logs', label: 'Audit Log', icon: Icon.history, perms: ['audit-log:read'] },
 ];
 

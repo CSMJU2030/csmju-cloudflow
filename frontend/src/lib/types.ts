@@ -107,3 +107,72 @@ export interface AuditLog {
   details: string | null;
   createdAt: string;
 }
+
+// ── ระบบยืมพื้นที่ cloud ──────────────────────────────────────
+
+export type StorageStatus =
+  | 'PENDING'
+  | 'REJECTED'
+  | 'CANCELLED'
+  | 'PROVISIONING'
+  | 'PROVISION_FAILED'
+  | 'ACTIVE'
+  | 'EXPIRED'
+  | 'RELEASED';
+
+/** GET /api/v1/storage-pools/current — คำนวณสดจาก view storage_pool_usage (หน่วย MiB + GB สำหรับแสดงผล) */
+export interface StoragePool {
+  name: string;
+  provider: string;
+  totalMib: number;
+  reservedMib: number;
+  usedMib: number;
+  freeMib: number;
+  maxPerUserMib: number;
+  totalGb: number;
+  freeGb: number;
+  maxPerUserGb: number;
+  fullSlotsLeft: number;
+  activeCount: number;
+  pendingCount: number;
+}
+
+/** คำขอยืมพื้นที่ — ไม่มีลิงก์ (ลิงก์ดูได้ทาง /storage-requests/:id/access เฉพาะเจ้าของ) */
+export interface StorageRequest {
+  id: string;
+  poolId: string;
+  coreUserId: string;
+  personCode: string | null;
+  teacherPersonCode: string | null;
+  courseCode: string;
+  quotaMib: number;
+  reason: string;
+  startDate: string;
+  endDate: string;
+  status: StorageStatus;
+  rejectReason: string | null;
+  reviewerCoreUserId: string | null;
+  reviewedAt: string | null;
+  usedMib: number;
+  usageSyncedAt: string | null;
+  provisionAttempts: number;
+  lastError: string | null;
+  activatedAt: string | null;
+  expiredAt: string | null;
+  releasedAt: string | null;
+  createdAt: string;
+}
+
+export interface StorageAccess {
+  shareUrl: string;
+  sharePassword: string | null;
+  expiresOn: string;
+  quotaMib: number;
+}
+
+export interface StorageJobResult {
+  job: string;
+  outcome: 'ran' | 'locked' | 'disabled';
+  processed: number;
+  failed: number;
+}
