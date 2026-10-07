@@ -43,6 +43,8 @@ export const Permission = {
   STORAGE_LINK_READ_OWN: 'storage-link:read:own',
   /** สั่งสร้างพื้นที่ใหม่เมื่อ provider ล้ม */
   STORAGE_PROVISION_RETRY: 'storage:retry:any',
+  /** สั่งรันงานตั้งเวลาของ storage ทันที (ADMIN) */
+  STORAGE_JOB_RUN: 'storage-job:run',
 } as const;
 
 export type Permission = (typeof Permission)[keyof typeof Permission];
@@ -57,7 +59,7 @@ const STORAGE: Record<SubsystemRole, readonly Permission[]> = {
   STUDENT: [P.STORAGE_POOL_READ, P.STORAGE_CREATE_OWN, P.STORAGE_READ_OWN, P.STORAGE_CANCEL_OWN, P.STORAGE_LINK_READ_OWN],
   TEACHER: [P.STORAGE_POOL_READ, P.STORAGE_REVIEW_OWN],
   STAFF: [P.STORAGE_POOL_READ, P.STORAGE_READ_ANY, P.STORAGE_PROVISION_RETRY],
-  ADMIN: [P.STORAGE_POOL_READ, P.STORAGE_READ_ANY, P.STORAGE_REVIEW_ANY, P.STORAGE_PROVISION_RETRY],
+  ADMIN: [P.STORAGE_POOL_READ, P.STORAGE_READ_ANY, P.STORAGE_REVIEW_ANY, P.STORAGE_PROVISION_RETRY, P.STORAGE_JOB_RUN],
 };
 
 const OPERATOR: readonly Permission[] = [

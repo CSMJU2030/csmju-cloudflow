@@ -5,8 +5,10 @@ import { CurrentUser, UserToken } from '../auth/decorators/current-user.decorato
 import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
 import type { CoreHubIdentity } from '../auth/core-hub-identity';
 import { Permission } from '../auth/permissions';
+import { validation } from '../common/errors';
 import { UuidPipe } from '../common/pipes/uuid.pipe';
 import { CreateStorageRequestDto, ListStorageRequestsDto, RejectStorageRequestDto } from './dto/storage-request.dto';
+import { STORAGE_JOBS, StorageJobsService, type StorageJobName } from './storage-jobs.service';
 import { StorageRequestsService } from './storage-requests.service';
 
 const P = Permission;
@@ -92,5 +94,23 @@ export class StorageController {
   @ApiOperation({ summary: 'สั่งสร้างพื้นที่ใหม่หลัง provider ล้ม (เจ้าหน้าที่)' })
   retry(@Param('id', UuidPipe) id: string, @CurrentUser() user: CoreHubIdentity, @UserToken() token: string) {
     return this.storage.retryProvision(id, { user, token });
+  }
+}
+
+@ApiTags('storage')
+@ApiBearerAuth()
+@Controller('v1/storage-jobs')
+export class StorageJobsController {
+  constructor(private readonly jobs: StorageJobsService) {}
+
+  @Post(':job/run')
+  @HttpCode(200)
+  @RequirePermissions(P.STORAGE_JOB_RUN)
+  @ApiOperation({ summary: 'รันงานตั้งเวลาทันที: expire · release · sync-usage · retry-provision (ADMIN)' })
+  run(@Param('job') job: string) {
+    if (!(STORAGE_JOBS as readonly string[]).includes(job)) {
+      throw validation(`ไม่รู้จักงาน ${job}`, [`job ต้องเป็น ${STORAGE_JOBS.join(' | ')}`]);
+    }
+    return this.jobs.run(job as StorageJobName);
   }
 }

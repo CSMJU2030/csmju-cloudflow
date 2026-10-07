@@ -15,6 +15,8 @@ import { applyEnv, jwksBody, makeKeys, sign, type TestKeys } from './helpers';
  */
 const IT_URL = process.env.STORAGE_IT_DATABASE_URL?.trim();
 const dbName = IT_URL ? new URL(IT_URL).pathname.replace(/^\//, '') : '';
+jest.setTimeout(60_000);
+
 const run = IT_URL && /sandbox|test/i.test(dbName) ? describe : describe.skip;
 
 run('HTTP flow: storage lending (sandbox)', () => {

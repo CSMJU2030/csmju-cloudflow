@@ -31,6 +31,9 @@ if (IT_URL && !SAFE) {
 
 const GB = 1024;
 
+// ฐานจริง + หลายชุดรันพร้อมกัน บน Windows ช้ากว่า 5 วินาทีของ jest ได้
+jest.setTimeout(60_000);
+
 const actor = (role: SubsystemRole, id: string) => ({
   token: 'it-token',
   user: {

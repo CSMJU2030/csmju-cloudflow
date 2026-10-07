@@ -184,6 +184,12 @@ export class StorageRequestsService {
     });
     if (live) throw conflict('ALREADY_HAS_SPACE', 'คุณมีพื้นที่ที่ยืมอยู่แล้ว ต้องคืนก่อนจึงยื่นใหม่ได้', { requestId: live.id });
 
+    const pending = await this.prisma.storageRequest.findFirst({
+      where: { poolId: pool.id, coreUserId: actor.user.id, status: StorageRequestStatus.PENDING },
+      select: { id: true },
+    });
+    if (pending) throw conflict('ALREADY_PENDING', 'คุณมีคำขอที่รออนุมัติอยู่แล้ว', { requestId: pending.id });
+
     // เช็กเบื้องต้นให้ผู้ใช้รู้เร็ว — ตัวจริงตรวจอีกครั้งตอนอนุมัติ (มีล็อก)
     const usage = await this.usageOf(pool.id);
     if (quotaMib > usage.freeMib) {

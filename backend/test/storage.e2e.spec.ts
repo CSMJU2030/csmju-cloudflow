@@ -64,6 +64,14 @@ describe('HTTP: storage lending', () => {
     expect(body.body.error.code).toBe('VALIDATION_ERROR');
   });
 
+  it('งานตั้งเวลา: staff สั่งรันไม่ได้ (403) · ชื่องานผิด (400) · ฟีเจอร์ปิด (503)', async () => {
+    await http().post('/api/v1/storage-jobs/expire/run').set('Authorization', await as('staff')).expect(403);
+    const admin = await as('admin');
+    const bad = await http().post('/api/v1/storage-jobs/drop-table/run').set('Authorization', admin).expect(400);
+    expect(bad.body.error.code).toBe('VALIDATION_ERROR');
+    await http().post('/api/v1/storage-jobs/expire/run').set('Authorization', admin).expect(503);
+  });
+
   it('ยังไม่ตั้ง STORAGE_SECRET_KEY → 503 พร้อม Retry-After (ฟีเจอร์ปิด ส่วนอื่นทำงานปกติ)', async () => {
     const res = await http().get('/api/v1/storage-pools/current').set('Authorization', await as('student')).expect(503);
     expect(res.body.error.code).toBe('SERVICE_UNAVAILABLE');
