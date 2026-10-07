@@ -2,19 +2,20 @@ import { Module } from '@nestjs/common';
 
 import { createStorageProvider } from './providers';
 import { STORAGE_PROVIDER } from './providers/storage-provider';
-import { SecretBox } from './secret-box';
+import { SECRET_BOX, SecretBox } from './secret-box';
+import { StorageController, StoragePoolsController } from './storage.controller';
 import { StorageRequestsService } from './storage-requests.service';
 
 /**
  * โมดูลระบบยืมพื้นที่ cloud
  *
- * ⚠️ ขั้นนี้ยังไม่ได้ import ใน AppModule — ระบบเดิมจึงไม่เปลี่ยนอะไร
- *    ขั้น API จะเพิ่ม controller แล้วค่อยเปิดใช้ (ต้องตั้ง STORAGE_SECRET_KEY ก่อน)
+ * เปิด/ปิดด้วย STORAGE_SECRET_KEY: ไม่ตั้ง = ทุก endpoint ของ storage ตอบ 503 ส่วนอื่นของแอปทำงานตามเดิม
  */
 @Module({
+  controllers: [StoragePoolsController, StorageController],
   providers: [
     StorageRequestsService,
-    { provide: SecretBox, useFactory: () => SecretBox.fromEnv() },
+    { provide: SECRET_BOX, useFactory: () => SecretBox.fromEnvOrNull() },
     { provide: STORAGE_PROVIDER, useFactory: () => createStorageProvider() },
   ],
   exports: [StorageRequestsService],

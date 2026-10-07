@@ -1,52 +1,28 @@
 import { StorageRequestStatus } from '../generated/prisma/enums';
 import type { CoreHubIdentity } from '../auth/core-hub-identity';
-import type { SubsystemRole } from '../auth/role-mapping';
+import { hasPermission, Permission } from '../auth/permissions';
 import { isAssignedTeacher, isOwner } from '../requests/request-rules';
 
 /**
  * กติกาของระบบยืมพื้นที่ cloud — ฟังก์ชันล้วน ไม่แตะฐานข้อมูล
- *
- * permission แยกจากเมทริกซ์หลัก (auth/permissions.ts) ไว้ก่อน เพื่อให้ขั้นนี้ไม่เปลี่ยนสิทธิ์ของระบบเดิม
- * ขั้น API จะย้ายเข้า ROLE_PERMISSIONS แล้วใช้กับ @RequirePermissions
+ * เมทริกซ์สิทธิ์อยู่ที่ auth/permissions.ts ที่เดียว (ROLE_PERMISSIONS) · ที่นี่ตรวจ "ต่อแถว"
  */
 export const StoragePermission = {
-  POOL_READ: 'storage-pool:read',
-  CREATE_OWN: 'storage:create:own',
-  READ_OWN: 'storage:read:own',
-  READ_ANY: 'storage:read:any',
-  CANCEL_OWN: 'storage:cancel:own',
-  /** อาจารย์พิจารณาคำขอที่ระบุตัวเอง หรือคำขอที่ไม่ได้ระบุอาจารย์ */
-  REVIEW_OWN: 'storage:review:own',
-  REVIEW_ANY: 'storage:review:any',
-  /** เปิดดูลิงก์และรหัสของพื้นที่ตัวเอง */
-  LINK_READ_OWN: 'storage-link:read:own',
-  /** สั่งสร้างพื้นที่ใหม่เมื่อ provider ล้ม */
-  PROVISION_RETRY: 'storage:retry:any',
+  POOL_READ: Permission.STORAGE_POOL_READ,
+  CREATE_OWN: Permission.STORAGE_CREATE_OWN,
+  READ_OWN: Permission.STORAGE_READ_OWN,
+  READ_ANY: Permission.STORAGE_READ_ANY,
+  CANCEL_OWN: Permission.STORAGE_CANCEL_OWN,
+  REVIEW_OWN: Permission.STORAGE_REVIEW_OWN,
+  REVIEW_ANY: Permission.STORAGE_REVIEW_ANY,
+  LINK_READ_OWN: Permission.STORAGE_LINK_READ_OWN,
+  PROVISION_RETRY: Permission.STORAGE_PROVISION_RETRY,
 } as const;
-
-export type StoragePermission = (typeof StoragePermission)[keyof typeof StoragePermission];
 
 const S = StoragePermission;
 
-/**
- * ข้อสมมติ (แก้ได้ที่นี่ที่เดียว):
- * - ผู้ยืมคือนักศึกษา · ผู้อนุมัติคืออาจารย์ · admin อนุมัติแทนได้
- * - staff ดูทุกคำขอและสั่งสร้างพื้นที่ซ้ำได้ แต่ไม่อนุมัติ (โจทย์กำหนดให้อาจารย์เป็นคนกดอนุญาต)
- */
-export const STORAGE_ROLE_PERMISSIONS: Record<SubsystemRole, readonly StoragePermission[]> = {
-  STUDENT: [S.POOL_READ, S.CREATE_OWN, S.READ_OWN, S.CANCEL_OWN, S.LINK_READ_OWN],
-  TEACHER: [S.POOL_READ, S.REVIEW_OWN],
-  STAFF: [S.POOL_READ, S.READ_ANY, S.PROVISION_RETRY],
-  ADMIN: [S.POOL_READ, S.READ_ANY, S.REVIEW_ANY, S.PROVISION_RETRY],
-};
-
-export function storagePermissionsOf(user: Pick<CoreHubIdentity, 'subsystemRole'>): readonly StoragePermission[] {
-  return STORAGE_ROLE_PERMISSIONS[user.subsystemRole] ?? [];
-}
-
-export function hasStoragePermission(user: Pick<CoreHubIdentity, 'subsystemRole'>, ...required: StoragePermission[]) {
-  const mine = storagePermissionsOf(user);
-  return required.some((p) => mine.includes(p));
+export function hasStoragePermission(user: Pick<CoreHubIdentity, 'permissions'>, ...required: Permission[]) {
+  return hasPermission(user.permissions, ...required);
 }
 
 // ─────────────────────────── สถานะ ───────────────────────────

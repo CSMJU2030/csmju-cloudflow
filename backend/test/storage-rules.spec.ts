@@ -6,7 +6,6 @@ import {
   canReviewStorage,
   safeProviderError,
   StoragePermission as S,
-  storagePermissionsOf,
 } from '../src/storage/storage-rules';
 
 const user = (role: SubsystemRole, id: string) => ({
@@ -30,10 +29,12 @@ describe('storage-rules', () => {
   });
 
   it('นักศึกษายืมได้ อาจารย์อนุมัติได้ staff อนุมัติไม่ได้', () => {
-    expect(storagePermissionsOf(user('STUDENT', 'a'))).toContain(S.CREATE_OWN);
-    expect(storagePermissionsOf(user('TEACHER', 'b'))).toContain(S.REVIEW_OWN);
-    expect(storagePermissionsOf(user('STAFF', 'c'))).not.toContain(S.REVIEW_ANY);
-    expect(storagePermissionsOf(user('STAFF', 'c'))).not.toContain(S.REVIEW_OWN);
+    expect(permissionsOf('STUDENT')).toContain(S.CREATE_OWN);
+    expect(permissionsOf('TEACHER')).toContain(S.REVIEW_OWN);
+    expect(permissionsOf('TEACHER')).not.toContain(S.CREATE_OWN);
+    expect(permissionsOf('STAFF')).not.toContain(S.REVIEW_ANY);
+    expect(permissionsOf('STAFF')).not.toContain(S.REVIEW_OWN);
+    expect(permissionsOf('ADMIN')).toContain(S.REVIEW_ANY);
   });
 
   it('อาจารย์อนุมัติได้เฉพาะคำขอที่ระบุตัวเองหรือไม่ระบุใคร', () => {

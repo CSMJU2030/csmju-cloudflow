@@ -1,5 +1,8 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 
+/** token ของ Nest — ค่าเป็น null เมื่อยังไม่ตั้ง STORAGE_SECRET_KEY (ระบบยืมพื้นที่ปิด) */
+export const SECRET_BOX = Symbol('STORAGE_SECRET_BOX');
+
 const VERSION = 'v1';
 const IV_BYTES = 12;
 const KEY_BYTES = 32;
@@ -22,6 +25,11 @@ export class SecretBox {
       throw new Error('STORAGE_SECRET_KEY ต้องเป็น base64 ของ 32 ไบต์ (ดูวิธีสร้างใน secret-box.ts)');
     }
     this.key = key;
+  }
+
+  /** ไม่ตั้งกุญแจ = null (ปิดฟีเจอร์) · ตั้งผิดรูปแบบ = ล้มตอนบูต */
+  static fromEnvOrNull(env: NodeJS.ProcessEnv = process.env): SecretBox | null {
+    return env.STORAGE_SECRET_KEY?.trim() ? new SecretBox(env.STORAGE_SECRET_KEY) : null;
   }
 
   static fromEnv(env: NodeJS.ProcessEnv = process.env): SecretBox {

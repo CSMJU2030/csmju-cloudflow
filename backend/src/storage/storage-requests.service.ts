@@ -14,7 +14,7 @@ import type { Actor } from '../requests/requests.service';
 import { CreateStorageRequestDto, ListStorageRequestsDto, RejectStorageRequestDto } from './dto/storage-request.dto';
 import { checkReservation, fullSlotsLeft, gbToMib, mibToGb } from './pool-math';
 import { STORAGE_PROVIDER, type StorageProvider } from './providers/storage-provider';
-import { SecretBox } from './secret-box';
+import { SECRET_BOX, type SecretBox } from './secret-box';
 import {
   canMoveStorage,
   canReadStorage,
@@ -73,12 +73,23 @@ export class StorageRequestsService {
     private readonly people: PeopleService,
     private readonly reference: ReferenceDataService,
     @Inject(STORAGE_PROVIDER) private readonly provider: StorageProvider,
-    private readonly box: SecretBox,
+    @Inject(SECRET_BOX) private readonly secretBox: SecretBox | null,
   ) {}
+
+  /** ยังไม่ตั้ง STORAGE_SECRET_KEY = ระบบยืมพื้นที่ปิดอยู่ (503) — ส่วนอื่นของแอปทำงานตามปกติ */
+  private get box(): SecretBox {
+    if (!this.secretBox) throw unavailable('ระบบยืมพื้นที่ยังไม่เปิดใช้งาน (ผู้ดูแลยังไม่ได้ตั้งค่า)', 300);
+    return this.secretBox;
+  }
+
+  private assertEnabled() {
+    void this.box;
+  }
 
   // ───────────────────────── pool ─────────────────────────
 
   async poolSummary() {
+    this.assertEnabled();
     const pool = await this.activePool();
     const u = await this.usageOf(pool.id);
     return {
@@ -101,6 +112,7 @@ export class StorageRequestsService {
   // ───────────────────────── อ่าน ─────────────────────────
 
   async list(dto: ListStorageRequestsDto, actor: Actor) {
+    this.assertEnabled();
     const where: Prisma.StorageRequestWhereInput = {
       AND: [await this.scopeFor(actor), dto.status ? { status: dto.status } : {}],
     };
@@ -119,6 +131,7 @@ export class StorageRequestsService {
   }
 
   async findOne(id: string, actor: Actor) {
+    this.assertEnabled();
     const row = await this.prisma.storageRequest.findUnique({ where: { id }, select: PUBLIC_SELECT });
     if (!row) throw notFound('ไม่พบคำขอพื้นที่ที่ระบุ');
     if (!canReadStorage(actor.user, row, await this.personCodeIfTeacher(actor))) {
@@ -129,6 +142,7 @@ export class StorageRequestsService {
 
   /** ลิงก์ + รหัสของพื้นที่ตัวเอง — เจ้าของเท่านั้น · บันทึก audit ว่าเปิดดู (ไม่บันทึกตัวลิงก์) */
   async revealLink(id: string, actor: Actor) {
+    this.assertEnabled();
     const row = await this.prisma.storageRequest.findUnique({ where: { id } });
     if (!row) throw notFound('ไม่พบคำขอพื้นที่ที่ระบุ');
     if (!hasStoragePermission(actor.user, S.LINK_READ_OWN) || !isOwner(actor.user, row)) {
@@ -154,6 +168,7 @@ export class StorageRequestsService {
   // ──────────────────────── เขียน ────────────────────────
 
   async create(dto: CreateStorageRequestDto, actor: Actor) {
+    this.assertEnabled();
     if (!hasStoragePermission(actor.user, S.CREATE_OWN)) throw forbidden('บทบาทของคุณยื่นคำขอยืมพื้นที่ไม่ได้');
     if (dto.endDate < dto.startDate) throw validation('endDate ต้องไม่มาก่อน startDate', ['endDate ต้องไม่มาก่อน startDate']);
 
@@ -212,6 +227,7 @@ export class StorageRequestsService {
    * ล็อกแถวคำขอและแถว pool ก่อนนับพื้นที่ — ใบที่อนุมัติพร้อมกันต้องรอคิว จึงไม่มีทางจองเกิน
    */
   async approve(id: string, actor: Actor) {
+    this.assertEnabled();
     const myCode = await this.personCodeIfTeacher(actor); // ถาม Core Hub ก่อนเปิด transaction
 
     await this.prisma.$transaction(async (tx) => {
@@ -255,6 +271,7 @@ export class StorageRequestsService {
   }
 
   async reject(id: string, dto: RejectStorageRequestDto, actor: Actor) {
+    this.assertEnabled();
     const row = await this.mustExist(id);
     if (!canReviewStorage(actor.user, row, await this.personCodeIfTeacher(actor))) {
       throw forbidden('คำขอนี้ไม่ได้ระบุคุณเป็นอาจารย์ผู้อนุมัติ');
@@ -269,6 +286,7 @@ export class StorageRequestsService {
   }
 
   async cancel(id: string, actor: Actor) {
+    this.assertEnabled();
     const row = await this.mustExist(id);
     if (!hasStoragePermission(actor.user, S.CANCEL_OWN) || !isOwner(actor.user, row)) {
       throw forbidden('ยกเลิกได้เฉพาะคำขอของตัวเอง');
@@ -281,6 +299,7 @@ export class StorageRequestsService {
 
   /** เจ้าหน้าที่สั่งสร้างพื้นที่ใหม่หลัง provider ล้ม */
   async retryProvision(id: string, actor: Actor) {
+    this.assertEnabled();
     if (!hasStoragePermission(actor.user, S.PROVISION_RETRY)) throw forbidden();
     const row = await this.mustExist(id);
     if (row.status !== StorageRequestStatus.PROVISION_FAILED) {
