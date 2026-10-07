@@ -8,6 +8,7 @@ import 'dotenv/config';
 import { PrismaPg } from '@prisma/adapter-pg';
 
 import { PrismaClient, ResourceStatus } from '../src/generated/prisma/client';
+import { loadPoolConfig } from '../src/storage/pool-math';
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }) });
 
@@ -23,6 +24,16 @@ async function main() {
     await prisma.resource.upsert({ where: { serverName: m.serverName }, update: m, create: m });
   }
   console.log(`seed: เครื่อง ${machines.length} เครื่อง`);
+
+  // pool พื้นที่ cloud storage — ขนาดจาก env (ไม่ตั้ง = 1 TiB · คนละ 15 GiB) · provider จาก STORAGE_PROVIDER (ไม่ตั้ง = fake)
+  const pool = loadPoolConfig();
+  const provider = process.env.STORAGE_PROVIDER?.trim() || 'fake';
+  await prisma.storagePool.upsert({
+    where: { name: 'cs-cloud-01' },
+    update: { provider, totalMib: pool.totalMib, maxPerUserMib: pool.maxPerUserMib },
+    create: { name: 'cs-cloud-01', provider, totalMib: pool.totalMib, maxPerUserMib: pool.maxPerUserMib },
+  });
+  console.log(`seed: storage pool cs-cloud-01 · ${pool.totalMib / 1024} GB · คนละ ${pool.maxPerUserMib / 1024} GB · provider ${provider}`);
 }
 
 main()
