@@ -76,7 +76,7 @@ export default function InfrastructurePage() {
 
       <Alert kind="bad">{error}</Alert>
 
-      <div className="grid cols-4" style={{ marginBottom: 18 }}>
+      <div className="cf-grid cols-4" style={{ marginBottom: 18 }}>
         <Stat
           label="Total CPU Core Usage"
           value={`${pct(totals.cpuUsed, totals.cpuTotal)}%`}

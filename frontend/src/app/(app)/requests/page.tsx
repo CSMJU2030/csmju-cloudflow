@@ -111,7 +111,7 @@ export default function RequestsPage() {
       <Alert kind="bad">{error}</Alert>
 
       {isReviewer && (
-        <div className="grid cols-3" style={{ marginBottom: 18 }}>
+        <div className="cf-grid cols-3" style={{ marginBottom: 18 }}>
           <Stat
             label="Pending Approvals"
             value={counts.pending}

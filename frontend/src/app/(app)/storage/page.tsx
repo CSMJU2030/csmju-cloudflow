@@ -146,7 +146,7 @@ export default function StoragePage() {
       <Alert kind="ok">{notice}</Alert>
 
       {pool && (
-        <div className="grid cols-3" style={{ marginBottom: 18 }}>
+        <div className="cf-grid cols-3" style={{ marginBottom: 18 }}>
           <Stat
             label="พื้นที่ที่ยังให้ยืมได้"
             value={gb(pool.freeMib)}
