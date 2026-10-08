@@ -14,6 +14,7 @@ export default function AllocationsPage() {
   const [rows, setRows] = useState<Allocation[] | null>(null);
   const [approved, setApproved] = useState<ResourceRequest[]>([]);
   const [nodes, setNodes] = useState<ResourceUsage[]>([]);
+  const [formError, setFormError] = useState('');
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
   const [busy, setBusy] = useState(false);
@@ -36,16 +37,17 @@ export default function AllocationsPage() {
     }
 
     if (isAdmin) {
-      try {
-        const [reqs, usage] = await Promise.all([
-          api<Paged<ResourceRequest>>('/requests?status=APPROVED&limit=100'),
-          api<Paged<ResourceUsage>>('/resource-usages?limit=100'),
-        ]);
-        setApproved(reqs.data);
-        setNodes(usage.data);
-      } catch {
-        /* ฟอร์มจัดสรรเป็นส่วนเสริม */
-      }
+      // โหลดแยกกัน — ถ้าอันหนึ่งพัง อีกอันยังขึ้น และบอกผู้ใช้ว่าพังเพราะอะไร (เดิมกลืน error เงียบ ๆ)
+      const [reqs, usage] = await Promise.allSettled([
+        api<Paged<ResourceRequest>>('/requests?status=APPROVED&limit=100'),
+        api<Paged<ResourceUsage>>('/resource-usages?limit=100'),
+      ]);
+      const errs: string[] = [];
+      if (reqs.status === 'fulfilled') setApproved(reqs.value.data);
+      else errs.push(`โหลดคำขอที่อนุมัติแล้วไม่สำเร็จ: ${reqs.reason instanceof ApiError ? reqs.reason.readable : 'unknown'}`);
+      if (usage.status === 'fulfilled') setNodes(usage.value.data);
+      else errs.push(`โหลดรายการเครื่องไม่สำเร็จ: ${usage.reason instanceof ApiError ? usage.reason.readable : 'unknown'}`);
+      setFormError(errs.join(' · '));
     }
   }, [isAdmin, onlyActive]);
 
@@ -185,6 +187,7 @@ export default function AllocationsPage() {
 
         {isAdmin && (
           <Card title="จัดสรรเครื่องใหม่">
+            <Alert kind="bad">{formError}</Alert>
             <div className="field">
               <label className="lbl">Approved Request</label>
               <select className="select" value={requestId} onChange={(e) => setRequestId(e.target.value)}>
@@ -203,25 +206,39 @@ export default function AllocationsPage() {
             <div className="field">
               <label className="lbl">Target Node</label>
               <select className="select" value={resourceId} onChange={(e) => setResourceId(e.target.value)}>
-                <option value="">เลือกเครื่อง</option>
-                {nodes
-                  .filter((n) => n.status === 'AVAILABLE')
-                  .map((n) => {
-                    const tooSmall =
-                      selectedReq &&
-                      (n.freeCpu < selectedReq.reqCpu ||
-                        n.freeRamGb < selectedReq.reqRamGb ||
-                        n.freeStorageGb < selectedReq.reqStorageGb ||
-                        (selectedReq.isGpuRequired && !n.hasGpu));
-                    return (
-                      <option key={n.resourceId} value={n.resourceId}>
-                        {n.serverName} · free {n.freeCpu}C/{n.freeRamGb}GB
-                        {n.hasGpu ? ' · GPU' : ''}
-                        {tooSmall ? ' — ไม่พอ' : ''}
-                      </option>
-                    );
-                  })}
+                <option value="">{nodes.length === 0 ? 'ยังไม่มีเครื่องในระบบ' : 'เลือกเครื่อง'}</option>
+                {nodes.map((n) => {
+                  // backend ห้ามแค่ MAINTENANCE/OFFLINE (FULL ยังจัดสรรได้ถ้าที่เหลือพอ) — หน้าเว็บต้องตรงกัน
+                  const blocked = n.status === 'MAINTENANCE' || n.status === 'OFFLINE';
+                  const tooSmall =
+                    selectedReq &&
+                    (n.freeCpu < selectedReq.reqCpu ||
+                      n.freeRamGb < selectedReq.reqRamGb ||
+                      n.freeStorageGb < selectedReq.reqStorageGb ||
+                      (selectedReq.isGpuRequired && !n.hasGpu));
+                  return (
+                    <option key={n.resourceId} value={n.resourceId} disabled={blocked}>
+                      {n.serverName} · free {n.freeCpu}C/{n.freeRamGb}GB/{n.freeStorageGb}GB
+                      {n.hasGpu ? ' · GPU' : ''}
+                      {n.status !== 'AVAILABLE' ? ` · ${n.status}` : ''}
+                      {!blocked && tooSmall ? ' — ไม่พอ' : ''}
+                    </option>
+                  );
+                })}
               </select>
+              {nodes.length === 0 ? (
+                <div className="cell-sub">
+                  ยังไม่มีเครื่องเซิร์ฟเวอร์ในฐานข้อมูล — เพิ่มที่หน้า{' '}
+                  <Link href="/resources" className="cell-link">
+                    เครื่องเซิร์ฟเวอร์ (Infrastructure)
+                  </Link>{' '}
+                  ก่อน หรือรัน <span className="mono">pnpm db:seed</span>
+                </div>
+              ) : (
+                nodes.every((n) => n.status === 'MAINTENANCE' || n.status === 'OFFLINE') && (
+                  <div className="cell-sub">ทุกเครื่องอยู่ในสถานะ MAINTENANCE/OFFLINE — เปลี่ยนสถานะที่หน้า Infrastructure ก่อน</div>
+                )
+              )}
             </div>
 
             <div className="row-2">
