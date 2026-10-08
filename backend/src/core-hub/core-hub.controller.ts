@@ -53,6 +53,21 @@ export class CoreHubController {
     );
   }
 
+  /**
+   * รหัสบุคลากร/รหัสนักศึกษาของผู้เรียกจาก Core Hub — หน้าอนุมัติของอาจารย์ใช้บอกว่า
+   * "คำขอที่ระบุรหัสนี้จะมาถึงคุณ" · บัญชีที่ยังไม่ผูกกับบุคคล (หรือ Core Hub ปฏิเสธ) ได้ personCode = null
+   */
+  @Get('me/person')
+  @ApiOperation({ summary: 'personCode ของผู้เรียก (จาก Core Hub /people/me · ไม่ cache)' })
+  async myPerson(@UserToken() token: string) {
+    try {
+      const me = await this.people.me(token);
+      return { personCode: me?.personCode ?? null, personType: me?.personType ?? null, linked: Boolean(me) };
+    } catch {
+      return { personCode: null, personType: null, linked: false };
+    }
+  }
+
   @Get('advisors')
   @RequirePermissions(Permission.REQUEST_CREATE_OWN)
   @ApiOperation({ summary: 'อาจารย์ที่ปรึกษาของผู้เรียก (จาก Core Hub /people/me · ไม่ cache)' })

@@ -26,6 +26,16 @@ export default function RequestsPage() {
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const isReviewer = can('request:review:own', 'request:review:any');
+  // อาจารย์ (review:own) เห็นเฉพาะใบที่ระบุรหัสบุคลากรของตัวเอง หรือไม่ระบุใคร — บอกรหัสให้เห็นชัด ๆ
+  const isOwnReviewer = can('request:review:own') && !can('request:review:any');
+  const [myCode, setMyCode] = useState<{ personCode: string | null; linked: boolean } | null>(null);
+
+  useEffect(() => {
+    if (!isOwnReviewer) return;
+    api<{ personCode: string | null; linked: boolean }>('/me/person')
+      .then(setMyCode)
+      .catch(() => setMyCode({ personCode: null, linked: false }));
+  }, [isOwnReviewer]);
 
   async function load() {
     try {
@@ -109,6 +119,22 @@ export default function RequestsPage() {
       </p>
 
       <Alert kind="bad">{error}</Alert>
+
+      {isOwnReviewer && myCode && (
+        <div className={`alert alert-${myCode.personCode ? 'ok' : 'bad'}`}>
+          {myCode.personCode ? (
+            <>
+              รหัสบุคลากรของคุณใน Core Hub คือ <b className="mono">{myCode.personCode}</b> — คุณจะเห็นคำขอที่นักศึกษาระบุรหัสนี้
+              ในช่อง Faculty Advisor และคำขอที่ไม่ได้ระบุอาจารย์
+            </>
+          ) : (
+            <>
+              บัญชีของคุณยังไม่ผูกกับข้อมูลบุคลากรใน Core Hub — จะเห็นเฉพาะคำขอที่นักศึกษา <b>ไม่ได้ระบุ</b> อาจารย์
+              (ติดต่อผู้ดูแล Core Hub ให้ผูกบัญชีกับรหัสบุคลากร)
+            </>
+          )}
+        </div>
+      )}
 
       {isReviewer && (
         <div className="cf-grid cols-3" style={{ marginBottom: 18 }}>
