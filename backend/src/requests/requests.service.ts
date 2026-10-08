@@ -11,7 +11,7 @@ import { PeopleService } from '../core-hub/people.service';
 import { ReferenceDataService } from '../core-hub/reference-data.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateRequestDto, ListRequestsDto, RejectRequestDto, UpdateRequestDto } from './dto/request.dto';
-import { canCancel, canRead, canReview, canTransition, ALLOWED_TRANSITIONS, isOwner } from './request-rules';
+import { canCancel, canRead, canReview, canTransition, ALLOWED_TRANSITIONS, isOwner, teacherScope } from './request-rules';
 
 const REQUEST_INCLUDE = {
   allocations: {
@@ -95,7 +95,7 @@ export class RequestsService {
         data: {
           coreUserId: actor.user.id,
           personCode: me?.personCode ?? null,
-          teacherPersonCode: dto.teacherPersonCode ?? null,
+          teacherPersonCode: dto.teacherPersonCode?.trim() || null,
           courseCode: dto.courseCode,
           reqCpu: dto.reqCpu,
           reqRamGb: dto.reqRamGb,
@@ -137,7 +137,7 @@ export class RequestsService {
     const updated = await this.prisma.request.update({
       where: { id },
       data: {
-        ...(dto.teacherPersonCode !== undefined ? { teacherPersonCode: dto.teacherPersonCode } : {}),
+        ...(dto.teacherPersonCode !== undefined ? { teacherPersonCode: dto.teacherPersonCode.trim() || null } : {}),
         ...(dto.courseCode !== undefined ? { courseCode: dto.courseCode } : {}),
         ...(dto.reqCpu !== undefined ? { reqCpu: dto.reqCpu } : {}),
         ...(dto.reqRamGb !== undefined ? { reqRamGb: dto.reqRamGb } : {}),
@@ -214,8 +214,7 @@ export class RequestsService {
     const perms = actor.user.permissions;
     if (hasPermission(perms, Permission.REQUEST_READ_ANY)) return {};
     if (hasPermission(perms, Permission.REQUEST_REVIEW_OWN)) {
-      const mine = await this.personCodeIfTeacher(actor);
-      return mine ? { OR: [{ teacherPersonCode: mine }, { teacherPersonCode: null }] } : { teacherPersonCode: null };
+      return teacherScope(await this.personCodeIfTeacher(actor));
     }
     return { coreUserId: actor.user.id };
   }

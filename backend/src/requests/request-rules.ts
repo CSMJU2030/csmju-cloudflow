@@ -33,8 +33,21 @@ export function isOwner(user: CoreHubIdentity, record: Owned): boolean {
  * myPersonCode มาจาก GET /people/me ของ Core Hub (null = บัญชียังไม่ผูกกับบุคคล)
  */
 export function isAssignedTeacher(record: Owned, myPersonCode: string | null): boolean {
-  if (record.teacherPersonCode === null) return true;
-  return myPersonCode !== null && record.teacherPersonCode === myPersonCode;
+  if (record.teacherPersonCode === null || record.teacherPersonCode.trim() === '') return true;
+  return myPersonCode !== null && samePersonCode(record.teacherPersonCode, myPersonCode);
+}
+
+/** รหัสบุคลากรเทียบแบบไม่สนตัวพิมพ์เล็ก/ใหญ่และช่องว่างหัวท้าย — นักศึกษาพิมพ์เองได้ จึงกันพิมพ์ต่างกันเล็กน้อย */
+export function samePersonCode(a: string, b: string): boolean {
+  return a.trim().toUpperCase() === b.trim().toUpperCase();
+}
+
+/** where ของ Prisma: ใบที่ระบุอาจารย์คนนี้ (ไม่สนตัวพิมพ์) หรือไม่ได้ระบุอาจารย์ */
+export function teacherScope(myPersonCode: string | null) {
+  const unassigned = [{ teacherPersonCode: null }, { teacherPersonCode: '' }];
+  return myPersonCode
+    ? { OR: [{ teacherPersonCode: { equals: myPersonCode.trim(), mode: 'insensitive' as const } }, ...unassigned] }
+    : { OR: unassigned };
 }
 
 export function canRead(user: CoreHubIdentity, record: Owned, myPersonCode: string | null): boolean {

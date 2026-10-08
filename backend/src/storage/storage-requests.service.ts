@@ -9,7 +9,7 @@ import { CoreHubClient } from '../core-hub/core-hub.client';
 import { PeopleService } from '../core-hub/people.service';
 import { ReferenceDataService } from '../core-hub/reference-data.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { isOwner } from '../requests/request-rules';
+import { isOwner, teacherScope } from '../requests/request-rules';
 import type { Actor } from '../requests/requests.service';
 import { CreateStorageRequestDto, ListStorageRequestsDto, RejectStorageRequestDto } from './dto/storage-request.dto';
 import { checkReservation, fullSlotsLeft, gbToMib, mibToGb } from './pool-math';
@@ -207,7 +207,7 @@ export class StorageRequestsService {
             poolId: pool.id,
             coreUserId: actor.user.id,
             personCode: me?.personCode ?? null,
-            teacherPersonCode: dto.teacherPersonCode ?? null,
+            teacherPersonCode: dto.teacherPersonCode?.trim() || null,
             courseCode: dto.courseCode,
             quotaMib,
             reason: dto.reason,
@@ -400,8 +400,7 @@ export class StorageRequestsService {
   private async scopeFor(actor: Actor): Promise<Prisma.StorageRequestWhereInput> {
     if (hasStoragePermission(actor.user, S.READ_ANY, S.REVIEW_ANY)) return {};
     if (hasStoragePermission(actor.user, S.REVIEW_OWN)) {
-      const mine = await this.personCodeIfTeacher(actor);
-      return mine ? { OR: [{ teacherPersonCode: mine }, { teacherPersonCode: null }] } : { teacherPersonCode: null };
+      return teacherScope(await this.personCodeIfTeacher(actor));
     }
     if (hasStoragePermission(actor.user, S.READ_OWN)) return { coreUserId: actor.user.id };
     throw forbidden('บทบาทของคุณดูคำขอยืมพื้นที่ไม่ได้');
