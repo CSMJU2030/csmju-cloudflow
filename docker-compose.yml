@@ -1,0 +1,70 @@
+# ทดสอบ image ในเครื่องก่อนเปิด PR — standards docs/deployment.md ข้อ 6
+#   docker compose up -d --build     (build api + web แล้วรัน db + api + web)
+#   docker compose ps                (ทั้งสามต้อง healthy)
+#   docker compose down              (ข้อมูลยังอยู่ใน volume)
+#
+# ล็อกแบบเดียวกับ server: read_only · cap_drop ALL · no-new-privileges · RAM api 512m / web 384m · หมุน log
+# เปิดเว็บที่ http://localhost:3208 — callback ที่ลงทะเบียนตอนก่อนเปิดใช้ (http://localhost:3208/auth/callback) ยังใช้ได้
+# ค่าในไฟล์นี้ไม่ใช่ความลับ (ฐานในเครื่อง) · บน server DevOps ใช้ compose ของ server และ api.env แทน
+name: csmju-cloudflow
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ['no-new-privileges:true']
+  restart: unless-stopped
+  logging: { driver: json-file, options: { max-size: '10m', max-file: '3' } }
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: csmju_cloudflow
+      POSTGRES_PASSWORD: local-only-password
+      POSTGRES_DB: csmju_cloudflow
+      TZ: Asia/Bangkok
+    volumes: ['db-data:/var/lib/postgresql/data']
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U csmju_cloudflow -d csmju_cloudflow']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging: { driver: json-file, options: { max-size: '10m', max-file: '3' } }
+
+  api:
+    <<: *hardening
+    build: { context: ., dockerfile: backend/Dockerfile }
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      TZ: Asia/Bangkok
+      DATABASE_URL: postgresql://csmju_cloudflow:local-only-password@db:5432/csmju_cloudflow?schema=public
+      DATABASE_POOL_MAX: 5
+      SUBSYSTEM_ID: csmju-cloudflow
+      CORE_HUB_URL: https://csmju2030.jowave.com
+      CORE_HUB_JWKS_URL: https://csmju2030.jowave.com/api/v1/.well-known/jwks.json
+      CORE_HUB_WEB_URL: https://csmju2030.jowave.com
+      CORE_HUB_ISSUER: core-hub
+      CORE_HUB_AUDIENCE: csmju2030
+      # ระบบยืมพื้นที่: ไม่ตั้ง = ปิด (503) · ทดสอบ: STORAGE_SECRET_KEY=<base64 32 ไบต์> docker compose up -d
+      STORAGE_SECRET_KEY: ${STORAGE_SECRET_KEY:-}
+      STORAGE_PROVIDER: fake
+      STORAGE_FAKE_ROOT: /tmp/fake-cloud
+    tmpfs: ['/tmp:size=32m']
+    mem_limit: 512m
+    depends_on: { db: { condition: service_healthy } }
+
+  web:
+    <<: *hardening
+    build: { context: ., dockerfile: frontend/Dockerfile }
+    environment:
+      CORE_HUB_WEB_URL: https://csmju2030.jowave.com
+      SUBSYSTEM_ID: csmju-cloudflow
+      TZ: Asia/Bangkok
+    tmpfs: ['/tmp:size=32m', '/app/frontend/.next/cache:size=64m']
+    depends_on: { api: { condition: service_healthy } }
+    ports: ['127.0.0.1:3208:3000']
+    mem_limit: 384m
+
+volumes:
+  db-data:
