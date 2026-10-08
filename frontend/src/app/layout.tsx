@@ -1,20 +1,31 @@
 import type { Metadata } from 'next';
-import { Plus_Jakarta_Sans, Noto_Sans_Thai } from 'next/font/google';
+import localFont from 'next/font/local';
 import { AuthProvider } from '@/lib/auth';
 import './globals.css';
 import './cloudflow.css';
 
-// ฟอนต์มาตรฐานผ่าน next/font เท่านั้น — self-host ตอน build ไม่โหลดจาก CDN (ui-design-system ข้อ 4.1)
-const jakarta = Plus_Jakarta_Sans({
-  variable: '--font-jakarta',
-  subsets: ['latin'],
-  weight: ['400', '600', '700', '800'],
+// ฟอนต์มาตรฐาน (ui-design-system ข้อ 4.1) ผ่าน next/font/local — ไฟล์ woff2 อยู่ใน repo (src/app/fonts · OFL)
+// ไม่ใช้ next/font/google เพราะ build ต้องดาวน์โหลดจาก Google ทุกครั้ง: เครือข่ายที่ดาวน์โหลดไม่ได้ทำให้ build ล้ม
+// (Turbopack: "next/font/google queries have exactly one entry") · ผลเหมือนกัน: self-host ไม่ยิงไป CDN
+const notoThai = localFont({
+  src: './fonts/noto-sans-thai-thai-wght-normal.woff2',
+  weight: '100 900',
+  variable: '--font-noto-thai-th',
+  // ไม่ใส่ฟอนต์สำรองต่อท้าย — อักษรละตินต้องตกไปที่ไฟล์ส่วนละตินด้านล่าง ไม่ใช่ฟอนต์สำรองของเครื่อง
+  adjustFontFallback: false,
 });
 
-const notoSansThai = Noto_Sans_Thai({
-  variable: '--font-noto-thai',
-  subsets: ['latin', 'thai'],
-  weight: ['400', '500', '600', '700'],
+// Noto Sans Thai ส่วนอักษรละติน (ไฟล์แยกตาม subset) — รวมกับส่วนไทยเป็น --font-noto-thai ใน cloudflow.css
+const notoThaiLatin = localFont({
+  src: './fonts/noto-sans-thai-latin-wght-normal.woff2',
+  weight: '100 900',
+  variable: '--font-noto-thai-latin',
+});
+
+const jakarta = localFont({
+  src: './fonts/plus-jakarta-sans-latin-wght-normal.woff2',
+  weight: '200 800',
+  variable: '--font-jakarta',
 });
 
 export const metadata: Metadata = {
@@ -27,7 +38,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="th" className={`${jakarta.variable} ${notoSansThai.variable} h-full antialiased`}>
+    <html lang="th" className={`${jakarta.variable} ${notoThai.variable} ${notoThaiLatin.variable} h-full antialiased`}>
       <body className="min-h-full bg-background text-on-surface">
         <AuthProvider>{children}</AuthProvider>
       </body>

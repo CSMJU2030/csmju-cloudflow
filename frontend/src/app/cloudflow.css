@@ -7,7 +7,10 @@
    ═══════════════════════════════════════════════════════════════ */
 
 /* สีทั้งหมดอ้าง token ของ template (@theme ใน globals.css) หรือ palette ของ Tailwind — ไม่มี hex ดิบ (UI-01) */
+/* ฟอนต์เนื้อความ = Noto Sans Thai ส่วนไทย + ส่วนละติน (ไฟล์ใน src/app/fonts · โหลดใน layout.tsx) */
 :root {
+  --font-noto-thai: var(--font-noto-thai-th), var(--font-noto-thai-latin);
+
   --bg: var(--color-background);
   --surface: var(--color-surface-container-lowest);
   --surface-2: var(--color-gray-50);
