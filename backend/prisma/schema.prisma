@@ -143,3 +143,84 @@ model AuditLog {
   @@index([createdAt])
   @@map("audit_logs")
 }
+
+// ═══════════════════════ ระบบยืมพื้นที่ cloud storage ═══════════════════════
+//  pool รวม (เช่น 1 TiB) แบ่งให้นักศึกษายืมคนละไม่เกิน max_per_user_mib (เช่น 15 GiB)
+//  หน่วยพื้นที่เป็น MiB แบบจำนวนเต็ม · พื้นที่ที่จองแล้ว/เหลือคำนวณสดจาก view storage_pool_usage
+//  กติกาที่ Prisma เขียนตรง ๆ ไม่ได้ (CHECK · partial unique index · view) อยู่ใน migration *_storage_lending
+
+enum StorageRequestStatus {
+  PENDING // ยื่นแล้ว รออาจารย์
+  REJECTED // อาจารย์ปฏิเสธ
+  CANCELLED // ผู้ขอยกเลิกเอง
+  PROVISIONING // อนุมัติแล้ว จองพื้นที่แล้ว กำลังสร้างที่ provider
+  PROVISION_FAILED // provider ล้ม — ยังจองพื้นที่ไว้ รอลองใหม่
+  ACTIVE // มีลิงก์ใช้งาน
+  EXPIRED // ปิดลิงก์แล้ว รอลบ
+  RELEASED // ลบพื้นที่แล้ว คืน quota แล้ว
+
+  @@map("storage_request_status")
+}
+
+model StoragePool {
+  id            String   @id @default(uuid()) @db.Uuid
+  name          String   @unique @db.VarChar(100)
+  /// fake | nextcloud | minio
+  provider      String   @db.VarChar(30)
+  /// พื้นที่รวมที่ยอมให้ยืม (MiB) — 1 TiB = 1048576
+  totalMib      Int      @map("total_mib")
+  /// สูงสุดต่อคน (MiB) — 15 GiB = 15360
+  maxPerUserMib Int      @map("max_per_user_mib")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  requests StorageRequest[]
+
+  @@map("storage_pools")
+}
+
+model StorageRequest {
+  id                 String               @id @default(uuid()) @db.Uuid
+  poolId             String               @map("pool_id") @db.Uuid
+  /// ผู้ขอ = claim `sub` (text ≤ 64 · ไม่ใช่ UUID เสมอไป · ไม่ unique)
+  coreUserId         String               @map("core_user_id") @db.VarChar(64)
+  personCode         String?              @map("person_code") @db.VarChar(64)
+  /// อาจารย์ผู้รับรอง (null = อาจารย์คนใดก็พิจารณาได้)
+  teacherPersonCode  String?              @map("teacher_person_code") @db.VarChar(64)
+  courseCode         String               @map("course_code") @db.VarChar(50)
+  /// ขนาดที่ขอ (MiB) ≤ max_per_user_mib ของ pool
+  quotaMib           Int                  @map("quota_mib")
+  reason             String               @db.Text
+  startDate          DateTime             @map("start_date") @db.Date
+  endDate            DateTime             @map("end_date") @db.Date
+  status             StorageRequestStatus @default(PENDING)
+  rejectReason       String?              @map("reject_reason") @db.Text
+  reviewerCoreUserId String?              @map("reviewer_core_user_id") @db.VarChar(64)
+  reviewedAt         DateTime?            @map("reviewed_at") @db.Timestamptz(6)
+  /// id ของพื้นที่ฝั่ง provider (มีค่าหลังสร้างสำเร็จ)
+  providerRef        String?              @map("provider_ref") @db.VarChar(200)
+  /// ลิงก์ใช้งาน — เข้ารหัส AES-GCM ก่อนเก็บ (ความลับ)
+  shareUrlEnc        String?              @map("share_url_enc") @db.Text
+  /// รหัสลิงก์ — เข้ารหัส AES-GCM ก่อนเก็บ (ความลับ)
+  sharePasswordEnc   String?              @map("share_password_enc") @db.Text
+  /// พื้นที่ที่ใช้ไปจริง (MiB) — sync จาก provider
+  usedMib            Int                  @default(0) @map("used_mib")
+  usageSyncedAt      DateTime?            @map("usage_synced_at") @db.Timestamptz(6)
+  provisionAttempts  Int                  @default(0) @map("provision_attempts")
+  /// ข้อความ error สั้น ๆ จาก provider (ไม่มีความลับ)
+  lastError          String?              @map("last_error") @db.VarChar(500)
+  activatedAt        DateTime?            @map("activated_at") @db.Timestamptz(6)
+  expiredAt          DateTime?            @map("expired_at") @db.Timestamptz(6)
+  releasedAt         DateTime?            @map("released_at") @db.Timestamptz(6)
+  createdAt          DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  pool StoragePool @relation(fields: [poolId], references: [id], onDelete: Restrict)
+
+  @@index([poolId])
+  @@index([coreUserId])
+  @@index([teacherPersonCode])
+  @@index([status])
+  @@map("storage_requests")
+}

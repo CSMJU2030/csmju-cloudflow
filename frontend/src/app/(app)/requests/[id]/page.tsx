@@ -113,7 +113,7 @@ export default function RequestDetailPage() {
               <h3>Active Credential &amp; Connection</h3>
               <p className="sub">Use these details to access your assigned compute resource.</p>
 
-              <div className="grid cols-3" style={{ marginBottom: 16 }}>
+              <div className="cf-grid cols-3" style={{ marginBottom: 16 }}>
                 <div className="dfield">
                   <div className="k">IP ADDRESS</div>
                   <div className="v">{active.ipAddress}</div>
@@ -171,7 +171,7 @@ export default function RequestDetailPage() {
 
           {/* ── รายละเอียดคำขอ ──────────────────────────── */}
           <Card title="Request Details">
-            <div className="grid cols-2">
+            <div className="cf-grid cols-2">
               <Field k="Requested Specs">
                 <SpecChip cpu={req.reqCpu} ram={req.reqRamGb} gpu={req.isGpuRequired} plain={!req.isGpuRequired} />
                 <div className="cell-sub">Storage {req.reqStorageGb} GB</div>

@@ -1,0 +1,21 @@
+# กันของที่ห้ามเข้า image (DEP-03 · deployment.md ข้อ 3.3)
+# ต้องมี **/ — ".env" เฉย ๆ กันแค่ที่ราก ไม่กัน backend/.env
+**/.env*
+!**/.env.example
+**/node_modules
+**/.pnpm-store
+
+# ผลการ build ในเครื่อง — Dockerfile build ใหม่เองใน image
+**/dist
+**/.next
+**/*.tsbuildinfo
+**/coverage
+backend/src/generated
+
+# ไม่เกี่ยวกับการรัน
+.git
+.github
+standards
+**/*.md
+**/test
+docker-compose.yml

@@ -63,7 +63,7 @@ export default function DashboardPage() {
 
       <Alert kind="bad">{error}</Alert>
 
-      <div className="grid cols-3" style={{ marginBottom: 18 }}>
+      <div className="cf-grid cols-3" style={{ marginBottom: 18 }}>
         <Stat
           label={can('request:create:own') ? 'คำขอที่รอพิจารณา' : 'Pending Approvals'}
           value={stats.pending}

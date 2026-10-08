@@ -29,11 +29,38 @@ export const Permission = {
 
   AUDIT_LOG_READ: 'audit-log:read',
   COURSE_READ: 'course:read',
+
+  // ── ระบบยืมพื้นที่ cloud (กติกาต่อแถวอยู่ใน storage/storage-rules.ts) ──
+  STORAGE_POOL_READ: 'storage-pool:read',
+  STORAGE_CREATE_OWN: 'storage:create:own',
+  STORAGE_READ_OWN: 'storage:read:own',
+  STORAGE_READ_ANY: 'storage:read:any',
+  STORAGE_CANCEL_OWN: 'storage:cancel:own',
+  /** อาจารย์พิจารณาคำขอพื้นที่ที่ระบุตัวเอง หรือที่ไม่ได้ระบุอาจารย์ */
+  STORAGE_REVIEW_OWN: 'storage:review:own',
+  STORAGE_REVIEW_ANY: 'storage:review:any',
+  /** เปิดดูลิงก์และรหัสของพื้นที่ตัวเอง */
+  STORAGE_LINK_READ_OWN: 'storage-link:read:own',
+  /** สั่งสร้างพื้นที่ใหม่เมื่อ provider ล้ม */
+  STORAGE_PROVISION_RETRY: 'storage:retry:any',
+  /** สั่งรันงานตั้งเวลาของ storage ทันที (ADMIN) */
+  STORAGE_JOB_RUN: 'storage-job:run',
 } as const;
 
 export type Permission = (typeof Permission)[keyof typeof Permission];
 
 const P = Permission;
+
+/**
+ * สิทธิ์ยืมพื้นที่ cloud — ผู้ยืม = นักศึกษา · ผู้อนุมัติ = อาจารย์ (admin อนุมัติแทนได้)
+ * staff ดูทั้งหมดและสั่งสร้างพื้นที่ซ้ำได้ แต่ไม่อนุมัติ (โจทย์กำหนดให้อาจารย์เป็นคนกดอนุญาต)
+ */
+const STORAGE: Record<SubsystemRole, readonly Permission[]> = {
+  STUDENT: [P.STORAGE_POOL_READ, P.STORAGE_CREATE_OWN, P.STORAGE_READ_OWN, P.STORAGE_CANCEL_OWN, P.STORAGE_LINK_READ_OWN],
+  TEACHER: [P.STORAGE_POOL_READ, P.STORAGE_REVIEW_OWN],
+  STAFF: [P.STORAGE_POOL_READ, P.STORAGE_READ_ANY, P.STORAGE_PROVISION_RETRY],
+  ADMIN: [P.STORAGE_POOL_READ, P.STORAGE_READ_ANY, P.STORAGE_REVIEW_ANY, P.STORAGE_PROVISION_RETRY, P.STORAGE_JOB_RUN],
+};
 
 const OPERATOR: readonly Permission[] = [
   P.RESOURCE_READ,
@@ -60,10 +87,11 @@ export const ROLE_PERMISSIONS: Record<SubsystemRole, readonly Permission[]> = {
     P.REQUEST_CANCEL_OWN,
     P.ALLOCATION_READ_OWN,
     P.COURSE_READ,
+    ...STORAGE.STUDENT,
   ],
-  TEACHER: [P.RESOURCE_READ, P.REQUEST_READ_OWN, P.REQUEST_REVIEW_OWN, P.COURSE_READ],
-  STAFF: OPERATOR,
-  ADMIN: OPERATOR,
+  TEACHER: [P.RESOURCE_READ, P.REQUEST_READ_OWN, P.REQUEST_REVIEW_OWN, P.COURSE_READ, ...STORAGE.TEACHER],
+  STAFF: [...OPERATOR, ...STORAGE.STAFF],
+  ADMIN: [...OPERATOR, ...STORAGE.ADMIN],
 };
 
 export function permissionsOf(role: SubsystemRole): readonly Permission[] {

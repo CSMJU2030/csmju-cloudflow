@@ -7,11 +7,13 @@ name: csmju-cloudflow          # ตรงกับทะเบียนใน C
 # เวอร์ชัน standards อยู่ใน .standards-version ไฟล์เดียว (ตั้งแต่ 1.5.1)
 conformance_level: L3                 # ระบบที่มี UI ต้องถึง L3
 
-# frontend เป็นประตูเดียวของระบบ: proxy /api/* และ /auth/login /auth/callback /auth/logout ไป backend (:4208)
-base_url: http://localhost:3208       # พอร์ต frontend ของทีม · localhost ไม่ใช่ 127.0.0.1
+# frontend เป็นประตูเดียวของระบบ: proxy /api/* และ /auth/login /auth/callback /auth/logout ไป backend
+# เว็บจริงบน server กลาง (deployment.md ข้อ 2) · ตอน dev ยังเปิดที่ http://localhost:3208 —
+# รัน conformance กับเครื่องตัวเองด้วย `node standards/conformance/run.js --url http://localhost:3208`
+base_url: https://csmju-cloudflow.jowave.com
 core_hub_url: https://csmju2030.jowave.com       # Core Hub จริง (API อยู่ใต้ /api/v1)
 core_hub_web_url: https://csmju2030.jowave.com   # เว็บที่ /auth/login ส่งเบราว์เซอร์ไป
-callback_path: /auth/callback         # base_url + callback_path = Callback URL ที่ลงทะเบียน (http://localhost:3208/auth/callback)
+callback_path: /auth/callback         # base_url + callback_path = Callback URL ที่ลงทะเบียน (https://csmju-cloudflow.jowave.com/auth/callback)
 
 # endpoint ที่เรียกได้โดยไม่มี token (SSO 1.1)
 public_endpoints:

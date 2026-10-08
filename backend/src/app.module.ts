@@ -14,6 +14,7 @@ import { HealthController } from './health/health.controller';
 import { PrismaModule } from './prisma/prisma.module';
 import { RequestsModule } from './requests/requests.module';
 import { ResourcesModule } from './resources/resources.module';
+import { StorageModule } from './storage/storage.module';
 
 @Global()
 @Module({
@@ -34,6 +35,7 @@ class ConfigProviderModule {}
     RequestsModule,
     AllocationsModule,
     AuditLogsModule,
+    StorageModule,
   ],
   controllers: [HealthController],
   providers: [
